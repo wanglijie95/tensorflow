@@ -16,6 +16,9 @@ limitations under the License.
 #ifndef TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_GRPC_TENSOR_CODING_H_
 #define TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_GRPC_TENSOR_CODING_H_
 
+#include "tensorflow/core/platform/types.h"
+#include "tensorflow/core/framework/tensor.h"
+
 namespace grpc {
 class ByteBuffer;
 }  // namespace grpc
@@ -23,6 +26,7 @@ class ByteBuffer;
 namespace tensorflow {
 class Tensor;
 class RecvTensorResponse;
+class SendReplicationRequest;
 
 // TODO(jeff,sanjay): this should not be grpc specific.  Instead of
 // grpc::ByteBuffer*, it should accept an object of an interface type
@@ -49,6 +53,26 @@ void EncodeRecvTensorResponseToByteBuffer(const RecvTensorResponse& proto,
 //
 // Discards original contents of *result.
 void EncodeTensorToByteBuffer(bool is_dead, const Tensor& val,
+                              ::grpc::ByteBuffer* result);
+
+// Encode a SendReplicationRequest protocol buffer into a byte buffer in a
+// format that is parseable as a SendReplicationRequest protocol buffer
+// holding "proto".
+//
+// Discards original contents of *result.
+void EncodeSendReplicationRequestToByteBuffer(const SendReplicationRequest& proto,
+                                              ::grpc::ByteBuffer* result);
+
+// Encode a Tensor into a byte buffer in a format that is parseable
+// as a SendReplicationRequest protocol buffer holding "val".
+//
+// "val" holds the tensor value to be encoded.
+//
+// Discards original contents of *result.
+void EncodeTensorToByteBuffer(StringPiece key,
+                              int64 global_step,
+                              string tensor_name,
+                              const Tensor& val,
                               ::grpc::ByteBuffer* result);
 
 }  // namespace grpc

@@ -46,7 +46,7 @@ class DummyDevice : public DeviceBase {
   DeviceAttributes attr_;
 };
 
-class StringSource : public TensorResponse::Source {
+class StringSource : public Source {
  public:
   explicit StringSource(const string* s, int block_size)
       : s_(s), stream_(nullptr), block_size_(block_size) {}

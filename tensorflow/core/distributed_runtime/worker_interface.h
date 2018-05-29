@@ -25,6 +25,10 @@ limitations under the License.
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/protobuf/worker.pb.h"
 
+namespace grpc {
+class ByteBuffer;
+}  // namespace grpc
+
 namespace tensorflow {
 
 // Status callback.
@@ -105,6 +109,9 @@ class WorkerInterface {
                                const RecvTensorRequest* request,
                                TensorResponse* response,
                                StatusCallback done) = 0;
+  
+  virtual void SendReplicationAsync(CallOptions* call_opts, const ::grpc::ByteBuffer* request,
+                                    SendReplicationResponse* response, StatusCallback done) = 0;
 
   virtual void LoggingAsync(const LoggingRequest* request,
                             LoggingResponse* response, StatusCallback done) = 0;

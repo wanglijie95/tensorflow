@@ -231,6 +231,28 @@ class Call : public UntypedCall<Service> {
                                     &call->request_received_tag_);
   }
 
+  // Enqueues a new sendreplication request for the given 
+  // service on the given completion queue, using the given `method_id`.
+  //
+  // The request will be handled with the given
+  // `handle_request_function`.
+  static void EnqueueRequestForSendReplication(
+      GrpcService* grpc_service, ::grpc::ServerCompletionQueue* cq,
+      int method_id, HandleRequestFunction handle_request_function,
+      bool supports_cancel, Device* cpu_dev, AllocatorAttributes& aa) {
+    auto call = new Call<Service, GrpcService, RequestMessage, ResponseMessage>(
+        handle_request_function);
+    if (supports_cancel) {
+      call->RegisterCancellationHandler();
+    }
+    call->request.InitAlloc(cpu_dev, aa);
+
+    // Initial ref for call handed to grpc; released in Tag callback.
+    grpc_service->RequestAsyncUnary(method_id, &call->ctx_, &call->request,
+                                    &call->responder_, cq, cq,
+                                    &call->request_received_tag_);
+  }
+
   RequestMessage request;
   ResponseMessage response;
 

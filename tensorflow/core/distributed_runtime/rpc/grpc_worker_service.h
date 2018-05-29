@@ -29,6 +29,7 @@ namespace tensorflow {
 class AsyncServiceInterface;
 struct WorkerEnv;
 struct WorkerSession;
+class TensorRequest;
 
 class GrpcWorker : public Worker {
  public:
@@ -39,6 +40,13 @@ class GrpcWorker : public Worker {
                                    const RecvTensorRequest* request,
                                    ::grpc::ByteBuffer* response,
                                    StatusCallback done);
+  
+  // Used in SendReplicationHandler
+  virtual Status GrpcSendReplication(const TensorRequest* request,
+                                    SendReplicationResponse* response);
+  
+  // Used for GetCPUDevice
+  Status GetCPUDevice(Device** cpu_dev);
 
   virtual void LoggingAsync(const LoggingRequest* request,
                             LoggingResponse* response, StatusCallback done);

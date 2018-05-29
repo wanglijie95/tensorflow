@@ -106,7 +106,7 @@ bool GrpcMaybeParseProto(const grpc::ByteBuffer& src, protobuf::Message* dst) {
 // extra copying.  This overload is used by the RPCState class in
 // grpc_state.h.
 bool GrpcMaybeParseProto(const ::grpc::ByteBuffer& src, TensorResponse* dst) {
-  struct ByteSource : public TensorResponse::Source {
+  struct ByteSource : public Source {
     const ::grpc::ByteBuffer* buffer;
     GrpcByteBufferSource src;
     bool ok;

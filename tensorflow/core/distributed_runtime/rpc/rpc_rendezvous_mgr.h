@@ -20,6 +20,10 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/worker_env.h"
 #include "tensorflow/core/platform/macros.h"
 
+namespace grpc {
+class ByteBuffer;
+}  // namespace grpc
+
 namespace tensorflow {
 
 class DeviceMgr;

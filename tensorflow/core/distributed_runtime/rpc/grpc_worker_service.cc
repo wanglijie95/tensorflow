@@ -41,6 +41,7 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/worker_session.h"
 #include "tensorflow/core/framework/cancellation.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/shadow_var.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/tracing.h"
@@ -162,6 +163,9 @@ class GrpcWorkerService : public AsyncServiceInterface {
       for (int i = 0; i < 1000; ++i) {
         EnqueueRecvTensorRequestRaw();
       }
+      for (int i = 0; i < 1000; ++i){
+        EnqueueSendReplicationRequestRaw();
+      }
       for (int i = 0; i < 100; ++i) {
         ENQUEUE_REQUEST(RunGraph, true);
       }
@@ -279,6 +283,15 @@ class GrpcWorkerService : public AsyncServiceInterface {
       ENQUEUE_REQUEST(RunGraph, true);
     }
 
+    void SendReplicationHandlerRaw(
+        WorkerCall<TensorRequest, SendReplicationResponse>* call) {
+      Schedule([this, call]() {
+        Status s = worker_->GrpcSendReplication(&call->request, &call->response);
+        call->SendResponse(ToGrpcStatus(s));
+      });
+      EnqueueSendReplicationRequestRaw();
+    }
+
     void RecvTensorHandlerRaw(
         WorkerCall<RecvTensorRequest, ::grpc::ByteBuffer>* call) {
       Schedule([this, call]() {
@@ -333,6 +346,25 @@ class GrpcWorkerService : public AsyncServiceInterface {
       }
     }
 
+    void EnqueueSendReplicationRequestRaw() {
+      mutex_lock l(shutdown_mu_);
+      if (!is_shutdown_) {
+        
+        Device* cpu_dev = nullptr;
+        worker_->GetCPUDevice(&cpu_dev);
+        AllocatorAttributes alloc_args;
+        alloc_args.set_on_host(true);
+        
+        Call<GrpcWorkerServiceThread, grpc::WorkerService::AsyncService,
+            TensorRequest, SendReplicationResponse>::
+            EnqueueRequestForSendReplication(
+                worker_service_, cq_.get(),
+                static_cast<int>(GrpcWorkerMethod::kSendReplication),
+                &GrpcWorkerServiceThread::SendReplicationHandlerRaw,
+                false /* supports cancel*/,cpu_dev, alloc_args);
+      }
+    }
+
     GrpcWorker* const worker_ = nullptr;  // Not owned.
     std::unique_ptr<::grpc::ServerCompletionQueue> cq_;
     std::unique_ptr<Thread> thread_;
@@ -356,6 +388,25 @@ class GrpcWorkerService : public AsyncServiceInterface {
 
 GrpcWorker::GrpcWorker(WorkerEnv* worker_env)
     : Worker(worker_env), recv_tensor_recent_request_ids_(100000) {}
+
+// Get the cpu device of this worker.
+Status GrpcWorker::GetCPUDevice(Device** cpu_dev){
+  // destination is on CPU.
+  return env_->device_mgr->LookupDevice("CPU:0", cpu_dev);
+}
+
+Status GrpcWorker::GrpcSendReplication(const TensorRequest* request,
+                                       SendReplicationResponse* response){
+
+  // std::cout << "Recv an replication, name : " << request->metadata().tensor_name()
+  //           <<  ", global_step : " << request->metadata().global_step() << std::endl;
+  ShadowVar *shadow = new ShadowVar(request->metadata().global_step(),
+                                    request->metadata().tensor_name(),
+                                    request->tensor());
+
+  g_shadow_manager.InsertShadow(shadow);
+  return Status::OK();
+}
 
 // GrpcRecvTensorAsync: unlike the other Worker methods, which use protocol
 // buffers for a response object, to avoid extra protocol buffer serialization

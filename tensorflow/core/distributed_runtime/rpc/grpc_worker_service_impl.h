@@ -38,7 +38,7 @@ TF_GRPC_ALLOW_UNLIMITED_MESSAGE_SIZE(tensorflow::RunGraphRequest);
 TF_GRPC_ALLOW_UNLIMITED_MESSAGE_SIZE(tensorflow::RunGraphResponse);
 
 namespace tensorflow {
-class GrpcByteSource : public TensorResponse::Source {
+class GrpcByteSource : public Source {
  public:
   explicit GrpcByteSource(grpc_byte_buffer* buffer) : buffer_(buffer) {}
   ~GrpcByteSource() override { DeleteStream(); }
@@ -102,6 +102,39 @@ class SerializationTraits<tensorflow::TensorResponse>
     return result;
   }
 };
+
+// Support parsing/unparsing of TensorRequest.
+template <>
+class SerializationTraits<tensorflow::TensorRequest>
+    : public UnlimitedSizeProtoSerializationTraits<tensorflow::TensorRequest> {
+ public:
+  static Status Serialize(const tensorflow::TensorRequest& msg,
+                          grpc_byte_buffer** bp, bool* own_buffer) {
+    std::cout << "SerializationTraits<tensorflow::TensorRequest>::Serialize" << std::endl;
+    LOG(FATAL) << "TODO(sanjay,jeff): Implement";
+    return Status();
+  }
+  static Status Deserialize(grpc_byte_buffer* buffer,
+                            tensorflow::TensorRequest* msg,
+                            int max_message_size = INT_MAX) {
+    if (buffer == nullptr) {
+      return Status(StatusCode::INTERNAL, "No payload");
+    }
+    Status result = g_core_codegen_interface->ok();
+    if (result.ok()) {
+      ::tensorflow::GrpcByteSource source(buffer);
+      auto s = msg->ParseFrom(&source);
+      if (!s.ok()) {
+        result = Status(StatusCode::INTERNAL,
+                        ::tensorflow::strings::StrCat(
+                            "TensorRequest parse error", s.ToString()));
+      }
+    }
+    g_core_codegen_interface->grpc_byte_buffer_destroy(buffer);
+    return result;
+  }
+};
+
 }  // namespace grpc
 
 namespace tensorflow {
@@ -117,6 +150,7 @@ enum class GrpcWorkerMethod {
   kCleanupGraph,
   kCleanupAll,
   kRecvTensor,
+  kSendReplication,
   kLogging,
   kTracing,
 };

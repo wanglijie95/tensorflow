@@ -63,6 +63,34 @@ class RPCState : public GrpcClientCQTag {
     call_->Finish(&response_buf_, &status_, this);
   }
 
+  RPCState(::grpc::GenericStub* stub, ::grpc::CompletionQueue* cq,
+           const ::grpc::string& method, const ::grpc::ByteBuffer* request,
+           Response* response, StatusCallback done, CallOptions* call_opts)
+      : RPCState(stub, cq, method, request, response, std::move(done),
+                 call_opts, /*fail_fast=*/false, /*timeout_in_ms=*/0) {}
+
+  RPCState(::grpc::GenericStub* stub, ::grpc::CompletionQueue* cq,
+           const ::grpc::string& method, const ::grpc::ByteBuffer* request,
+           Response* response, StatusCallback done, CallOptions* call_opts,
+           bool fail_fast, int64 timeout_in_ms)
+      : call_opts_(call_opts), done_(std::move(done)) {
+    context_.set_fail_fast(fail_fast);
+    if (timeout_in_ms > 0) {
+      context_.set_deadline(gpr_time_from_millis(timeout_in_ms, GPR_TIMESPAN));
+    }
+
+    if (call_opts) {
+      call_opts->SetCancelCallback([this]() { context_.TryCancel(); });
+    }
+
+    response_ = response;
+    send_replication_request_ = request;
+    call_ =
+        std::move(stub->PrepareUnaryCall(&context_, method, *send_replication_request_, cq));
+    call_->StartCall();
+    call_->Finish(&response_buf_, &status_, this);
+  }
+
   void OnCompleted(bool ok) override {
     if (call_opts_) {
       call_opts_->ClearCancelCallback();
@@ -90,6 +118,7 @@ class RPCState : public GrpcClientCQTag {
   Response* response_;
   ::grpc::ByteBuffer request_buf_;
   ::grpc::ByteBuffer response_buf_;
+  const ::grpc::ByteBuffer* send_replication_request_;
   ::grpc::Status status_;
   StatusCallback done_;
 };

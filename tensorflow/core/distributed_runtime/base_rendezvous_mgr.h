@@ -38,6 +38,7 @@ namespace tensorflow {
 
 class BaseRemoteRendezvous;
 class BaseRecvTensorCall;
+class BaseSendReplicationCall;
 
 // RendezvousMgr keeps track of a set of local rendezvous instances.
 // All tensors sent by this worker are buffered in a RendezvousMgr
@@ -134,6 +135,15 @@ class BaseRemoteRendezvous : public RemoteRendezvous {
   // local_, in the remote case it initiates an RPC request.
   void RecvAsync(const ParsedKey& key, const Rendezvous::Args& args,
                  DoneCallback done) override;
+  
+  // This method is only for sending replications to other servers.
+  // Note that it's dst device must a remote device, otherwise throws error.
+  void SendReplicationAsync(const ParsedKey& parsed,
+                            const Rendezvous::Args& send_args,
+                            const int64 global_step,
+                            const string replication_name,
+                            const Tensor& val,
+                            StatusCallback done);
 
   void StartAbort(const Status& status) override;
 
@@ -153,6 +163,13 @@ class BaseRemoteRendezvous : public RemoteRendezvous {
   virtual void RecvFromRemoteAsync(const Rendezvous::ParsedKey& parsed,
                                    const Rendezvous::Args& args,
                                    DoneCallback done) = 0;
+  
+  virtual void SendToRemoteAsync(const Rendezvous::ParsedKey& parsed,
+                                 const Rendezvous::Args& args,
+                                 const int64 global_step,
+                                 const string replication_name,
+                                 const Tensor& val,
+                                 StatusCallback done) = 0;
 
   // Returns true if "src" and "dst" are located in the same worker,
   // and hence may use a local rendezvous.
@@ -164,6 +181,12 @@ class BaseRemoteRendezvous : public RemoteRendezvous {
 
   // Removes "call" from active_ if "call" is in active_.
   void DeregisterCall(BaseRecvTensorCall* call);
+
+  // If aborted, aborts "call". Otherwise, adds "call" into send_active_.
+  void RegisterCall(BaseSendReplicationCall* call);
+
+  // Removes "call" from send_active_ if "call" is in send_active_.
+  void DeregisterCall(BaseSendReplicationCall* call);
 
   WorkerSession* session();
 
@@ -194,6 +217,9 @@ class BaseRemoteRendezvous : public RemoteRendezvous {
 
   // Active outstanding RecvTensor calls.
   gtl::FlatSet<BaseRecvTensorCall*> active_ GUARDED_BY(mu_);
+
+  // Active outstanding SendReplication calls.
+  gtl::FlatSet<BaseSendReplicationCall*> send_active_ GUARDED_BY(mu_);
 
   bool is_initialized_locked() EXCLUSIVE_LOCKS_REQUIRED(mu_) {
     return session_ != nullptr;
@@ -232,6 +258,21 @@ class BaseRecvTensorCall {
 
  private:
   TF_DISALLOW_COPY_AND_ASSIGN(BaseRecvTensorCall);
+};
+
+class BaseSendReplicationCall {
+ public:
+  BaseSendReplicationCall() {}
+  virtual ~BaseSendReplicationCall() {}
+
+  virtual void Start(std::function<void()> send_done) = 0;
+
+  virtual void StartAbort(const Status& s) = 0;
+
+  virtual Status status() const = 0;
+
+ private:
+  TF_DISALLOW_COPY_AND_ASSIGN(BaseSendReplicationCall);
 };
 
 }  // end namespace tensorflow

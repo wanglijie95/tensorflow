@@ -340,6 +340,39 @@ message RecvTensorResponse {
 
 ////////////////////////////////////////////////////////////////////////////////
 //
+// SendReplication method request/response messages
+//
+////////////////////////////////////////////////////////////////////////////////
+
+message SendReplicationRequest {
+
+  // A key that identifies the tensor be sended.
+  string rendezvous_key = 1;
+  
+  // The global_step of this Tensor.
+  int64 global_step = 2;
+
+  // Tensor Name
+  string tensor_name = 3;
+
+  // The tensor as a proto.
+  TensorProto tensor = 4;
+
+  // // The time at which tensor was sended.
+  // int64 send_start_micros = 5;
+
+  // // If true, use an out-of-band DMA mechanism to transfer the
+  // // received tensor.
+  // bool dma_ok = 3;
+}
+
+message SendReplicationResponse {
+
+}
+
+
+////////////////////////////////////////////////////////////////////////////////
+//
 // Logging method request/response messages
 //
 // NOTE(mrry): This feature is not supported in the open-source

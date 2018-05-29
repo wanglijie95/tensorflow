@@ -138,6 +138,7 @@ BaseRemoteRendezvous::BaseRemoteRendezvous(const WorkerEnv* env, int64 step_id)
 
 BaseRemoteRendezvous::~BaseRemoteRendezvous() {
   CHECK(active_.empty());
+  CHECK(send_active_.empty());
   local_->Unref();
 }
 
@@ -328,6 +329,33 @@ void BaseRemoteRendezvous::RecvAsync(const ParsedKey& parsed,
   }
 }
 
+void BaseRemoteRendezvous::SendReplicationAsync(const ParsedKey& parsed,
+                                                const Rendezvous::Args& send_args,
+                                                const int64 global_step,
+                                                const string replication_name,
+                                                const Tensor& val,
+                                                StatusCallback done) {
+  VLOG(1) << "RemoteRendezvous SendReplicationAsync " << this << " " << parsed.FullKey();
+  CHECK(is_initialized()) << "SendReplicationAsync called when uninitialized.";
+  Status s;
+  s = ValidateDevices(parsed, true /*!is_src*/);
+  if (!s.ok()) {
+    done(s);
+    return;
+  }
+
+  // Note that the src and dst shouldn't be the same worker.
+  // So we check it, if the same worker, return Status::error.
+  if (IsSameWorker(parsed.src, parsed.dst)) {
+    s = errors::Internal(parsed.src_device, " and " , parsed.dst_device," is the same worker.");
+    done(s);
+    return;
+  } else {
+    SendToRemoteAsync(parsed, send_args, global_step,
+                      replication_name, val, std::move(done));
+  }
+}
+
 void BaseRemoteRendezvous::RecvLocalAsync(const ParsedKey& parsed,
                                           DoneCallback done) {
   {
@@ -370,6 +398,10 @@ void BaseRemoteRendezvous::StartAbort(const Status& s) {
         call->StartAbort(s);
       }
       active_.clear();
+      for (BaseSendReplicationCall* call : send_active_) {
+        call->StartAbort(s);
+      }
+      send_active_.clear();
     }
   }
 }
@@ -386,6 +418,20 @@ void BaseRemoteRendezvous::RegisterCall(BaseRecvTensorCall* call) {
 void BaseRemoteRendezvous::DeregisterCall(BaseRecvTensorCall* call) {
   mutex_lock l(mu_);
   active_.erase(call);
+}
+
+void BaseRemoteRendezvous::RegisterCall(BaseSendReplicationCall* call) {
+  mutex_lock l(mu_);
+  if (!status_.ok()) {
+    call->StartAbort(status_);
+  } else {
+    CHECK(send_active_.insert(call).second);
+  }
+}
+
+void BaseRemoteRendezvous::DeregisterCall(BaseSendReplicationCall* call) {
+  mutex_lock l(mu_);
+  send_active_.erase(call);
 }
 
 BaseRemoteRendezvous::DeferredCall::DeferredCall(const ParsedKey& parsed,

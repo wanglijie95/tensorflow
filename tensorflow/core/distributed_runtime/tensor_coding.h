@@ -29,6 +29,26 @@ class Allocator;
 class DeviceBase;
 class TensorProto;
 
+// Source provides a way for a particular RPC implementation to provide
+// received data to ParseFrom.
+class Source {
+  public:
+  virtual ~Source();
+
+  // Return the stream that contains the data to be parsed.
+  // Note that this method might be invoked more than once if
+  // ParseFrom needs to fall back to a more expensive parsing method.
+  // Every call must return a stream pointing at the beginning of
+  // the serialized RecvTensorResponse.
+  //
+  // Note that a subsequent call to contents() invalidates previous
+  // results of contents().
+  //
+  // Ownership of the returned stream is retained by the Source and
+  // should not be deleted by the caller.
+  virtual ::tensorflow::protobuf::io::ZeroCopyInputStream* contents() = 0;
+};
+
 // TensorResponse can be used as the destination of an RPC that returns
 // a RecvTensorResponse.  It efficiently decodes the incoming data
 // into Tensor contents as well as associated metadata.
@@ -45,26 +65,6 @@ class TensorResponse {
 
   // Initialize memory allocation related members.
   void InitAlloc(DeviceBase* d, const AllocatorAttributes& aa);
-
-  // Source provides a way for a particular RPC implementation to provide
-  // received data to ParseFrom.
-  class Source {
-   public:
-    virtual ~Source();
-
-    // Return the stream that contains the data to be parsed.
-    // Note that this method might be invoked more than once if
-    // ParseFrom needs to fall back to a more expensive parsing method.
-    // Every call must return a stream pointing at the beginning of
-    // the serialized RecvTensorResponse.
-    //
-    // Note that a subsequent call to contents() invalidates previous
-    // results of contents().
-    //
-    // Ownership of the returned stream is retained by the Source and
-    // should not be deleted by the caller.
-    virtual ::tensorflow::protobuf::io::ZeroCopyInputStream* contents() = 0;
-  };
 
   // Parse the RecvTensorResponse encoded in the data yielded by
   // source->contents() into *this.
@@ -100,6 +100,51 @@ class TensorResponse {
   bool already_used_ = false;
   Tensor tensor_;
   RecvTensorResponse meta_;
+};
+
+
+// TensorRequest can be used when server receive a Rpc request that `SendReplicationRequest`.  It efficiently decodes the incoming data
+// into Tensor contents as well as associated metadata.
+class TensorRequest {
+ public:
+  TensorRequest() {}
+
+  // Reset to initial state.
+  void Clear();
+
+  // Clear just tensor_ and meta_ members without setting allocation
+  // related members.
+  void ClearTensor();
+
+  // Initialize memory allocation related members.
+  void InitAlloc(DeviceBase* d, const AllocatorAttributes& aa);
+
+  // Parse the SendReplicationRequest encoded in the data yielded by
+  // source->contents() into *this.
+  Status ParseFrom(Source* source);
+
+  // Return a reference to the parsed tensor.  The tensor will remain
+  // live only until *this is destroyed or modified.
+  const Tensor& tensor() const { return tensor_; }
+
+  // Return a reference to the parsed tensor metadata (no contents).
+  // The result will remain live only until *this is destroyed or
+  // modified.
+  const SendReplicationRequest& metadata() const { return meta_; }
+
+ private:
+  bool ParseTensorSubmessage(protobuf::io::CodedInputStream* input,
+                             TensorProto* tensor_meta);
+  bool ParseFast(Source* source);
+  bool ParseSlow(Source* source);
+
+  bool on_host_ = false;
+  DeviceBase* device_ = nullptr;
+  AllocatorAttributes alloc_attrs_;
+  Allocator* allocator_ = nullptr;
+  bool already_used_ = false;
+  Tensor tensor_;
+  SendReplicationRequest meta_;
 };
 
 }  // namespace tensorflow

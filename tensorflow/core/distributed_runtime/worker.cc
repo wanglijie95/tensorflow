@@ -338,4 +338,12 @@ void Worker::RecvTensorAsync(CallOptions* opts,
   done(errors::Unimplemented("Worker::RecvTensorAsync()"));
 }
 
+void Worker::SendReplicationAsync(CallOptions* call_opts,
+                                  const ::grpc::ByteBuffer* request,
+                                  SendReplicationResponse* response,
+                                  StatusCallback done) {
+
+  done(errors::Unimplemented("Worker::SendReplicationAsync()"));
+}
+
 }  // namespace tensorflow

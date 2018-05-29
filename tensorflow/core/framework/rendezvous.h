@@ -77,6 +77,7 @@ class Rendezvous : public core::RefCounted {
     friend class Rendezvous;
     friend class SendOp;
     friend class RecvOp;
+    friend class SendReplicationOp;
     string buf_;
   };
   static Status ParseKey(StringPiece key, ParsedKey* out);
@@ -105,8 +106,17 @@ class Rendezvous : public core::RefCounted {
                              const Tensor&, const bool)>
       DoneCallback;
 
+  typedef std::function<void(const Status&)> StatusCallback;
+
   virtual void RecvAsync(const ParsedKey& key, const Args& args,
                          DoneCallback done) = 0;
+
+  virtual void SendReplicationAsync(const ParsedKey& parsed,
+                                    const Rendezvous::Args& send_args,
+                                    const int64 global_step,
+                                    const string replication_name,
+                                    const Tensor& val,
+                                    StatusCallback done) = 0;
 
   // Synchronous wrapper for RecvAsync.
   Status Recv(const ParsedKey& key, const Args& args, Tensor* val,

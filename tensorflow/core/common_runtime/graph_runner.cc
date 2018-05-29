@@ -80,6 +80,16 @@ class SimpleRendezvous : public Rendezvous {
     done(status, Args{}, recv_args, tensor, false);
   }
 
+  void SendReplicationAsync(const ParsedKey& parsed,
+                            const Rendezvous::Args& send_args,
+                            const int64 global_step,
+                            const string replication_name,
+                            const Tensor& val,
+                            StatusCallback done) override{
+
+    done(errors::Unimplemented("SimpleRendezvous::SendReplicationAsync()"));
+  }
+
   void StartAbort(const Status& status) override {}
 
  private:

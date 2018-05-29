@@ -144,6 +144,16 @@ void IntraProcessRendezvous::RecvAsync(const ParsedKey& parsed,
       });
 }
 
+void IntraProcessRendezvous::SendReplicationAsync(const ParsedKey& parsed,
+                                                  const Rendezvous::Args& send_args,
+                                                  const int64 global_step,
+                                                  const string replication_name,
+                                                  const Tensor& val,
+                                                  StatusCallback done) {
+  
+  done(errors::Unimplemented("IntraProcessRendezvous::SendReplicationAsync()"));
+}
+
 void IntraProcessRendezvous::StartAbort(const Status& s) {
   CHECK(!s.ok());
   local_->StartAbort(s);

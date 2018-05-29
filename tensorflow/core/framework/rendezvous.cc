@@ -235,6 +235,16 @@ class LocalRendezvousImpl : public Rendezvous {
     delete item;
   }
 
+  void SendReplicationAsync(const ParsedKey& parsed,
+                            const Rendezvous::Args& send_args,
+                            const int64 global_step,
+                            const string replication_name,
+                            const Tensor& val,
+                            StatusCallback done) {
+  
+    done(errors::Unimplemented("LocalRendezvousImpl::SendReplicationAsync()"));
+  }
+
   void StartAbort(const Status& status) override {
     CHECK(!status.ok());
     Table table;

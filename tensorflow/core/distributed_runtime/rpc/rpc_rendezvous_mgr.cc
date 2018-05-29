@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/core/distributed_runtime/rpc/rpc_rendezvous_mgr.h"
+#include "grpc++/support/byte_buffer.h"
 
 #include <unordered_set>
 
@@ -23,6 +24,7 @@ limitations under the License.
 #include "tensorflow/core/common_runtime/process_util.h"
 #include "tensorflow/core/distributed_runtime/request_id.h"
 #include "tensorflow/core/distributed_runtime/tensor_coding.h"
+#include "tensorflow/core/distributed_runtime/rpc/grpc_tensor_coding.h"
 #include "tensorflow/core/distributed_runtime/worker_cache.h"
 #include "tensorflow/core/distributed_runtime/worker_interface.h"
 #include "tensorflow/core/framework/types.h"
@@ -46,6 +48,13 @@ class RpcRemoteRendezvous : public BaseRemoteRendezvous {
   void RecvFromRemoteAsync(const Rendezvous::ParsedKey& parsed,
                            const Rendezvous::Args& args,
                            DoneCallback done) override;
+  
+  void SendToRemoteAsync(const Rendezvous::ParsedKey& parsed,
+                        const Rendezvous::Args& send_args,
+                        const int64 global_step,
+                        const string replication_name,
+                        const Tensor& val,
+                        StatusCallback done) override;
 
  private:
   ~RpcRemoteRendezvous() override {}
@@ -256,6 +265,253 @@ void RpcRemoteRendezvous::RecvFromRemoteAsync(
     session()->worker_cache->ReleaseWorker(call->src_worker_, call->wi_);
     call->wi_ = nullptr;
     get_call_freelist()->Release(call, session()->worker_cache.get());
+    Unref();
+  });
+}
+
+// Used only to send replications to remote processes.
+class RpcSendReplicationCall : public BaseSendReplicationCall {
+ public:
+  RpcSendReplicationCall() : wi_(nullptr), src_device_(nullptr) {}
+
+  void Init(WorkerInterface* wi, int64 step_id, StringPiece key,
+            AllocatorAttributes alloc_attrs, Device* src_device,
+            const Rendezvous::Args& send_args, const int64 global_step,
+            const string replication_name, const Tensor& val,
+            Rendezvous::StatusCallback done) {
+    wi_ = wi;
+    alloc_attrs_ = alloc_attrs;
+    src_device_ = src_device;
+    send_args_ = send_args;
+    done_ = std::move(done);
+    const bool on_host = alloc_attrs_.on_host();
+    {
+      // Non_DMA cases.
+      if(src_device_->tensorflow_gpu_device_info() && (!on_host)){
+#if GOOGLE_CUDA
+        const DeviceContext* send_dev_context = send_args_.device_context;
+        AllocatorAttributes gpu_alloc_attrs;
+        gpu_alloc_attrs.set_gpu_compatible(true);
+        gpu_alloc_attrs.set_on_host(true);
+        Allocator* alloc = src_device_->GetAllocator(gpu_alloc_attrs);
+        Tensor* copy = new Tensor(alloc, val.dtype(), val.shape());
+        CHECK(send_dev_context)
+            << "send dev name: " << src_device_->name()
+            << " gpu_info: " << src_device_->tensorflow_gpu_device_info();
+        // "val" is on a GPU. Uses GPUUtil to fill the copy on host.
+        ::grpc::ByteBuffer* request = &req_;
+        StatusCallback copy_ready = [request, copy, key, global_step,
+                                    replication_name, &status_](const Status& s) {
+          // The value is now ready to be returned on the wire.
+          tensorflow::grpc::EncodeTensorToByteBuffer(key, global_step, replication_name, *copy, request);
+          status_.Update(s);
+          delete copy;
+        };
+
+        tensorflow::GPUUtil::CopyGPUTensorToCPU(src_device_, send_dev_context, &val, copy,
+                            copy_ready);
+#else
+        status_.Update(errors::Internal("No GPU device in process"));
+#endif // GOOGLE_CUDA
+      } else {
+        tensorflow::grpc::EncodeTensorToByteBuffer(key, global_step, replication_name, val, &req_);
+      }
+    }
+  }
+
+  void Reset(WorkerCacheInterface* wc) {
+    wc->ReleaseWorker(dst_worker_, wi_);
+    wi_ = nullptr;
+    alloc_attrs_ = AllocatorAttributes();
+    src_device_ = nullptr;
+    // We don't clear opts_ and assume that Init will set up the state for
+    // opts_ appropriately.
+    req_.Clear();
+    resp_.Clear();
+    {
+      mutex_lock l(mu_);
+      status_ = Status::OK();
+    }
+    done_ = nullptr;
+  }
+
+  ~RpcSendReplicationCall() override {
+    // Since only the RpcSendReplicationFreeList will delete an
+    // RpcSendReplicationCall, and it always sets this->wi_ to null when
+    // a call object is released to it, we can assert that this->wi_ is
+    // always null at the point of deletion.
+    CHECK_EQ(static_cast<WorkerInterface*>(nullptr), wi_)
+        << "Leaking WorkerInterface in RpcSendReplicationCall destructor.";
+  }
+
+  void Start(std::function<void()> send_done) override {
+    StartSRCall(std::move(send_done));
+  }
+
+  void StartAbort(const Status& s) override {
+    {
+      mutex_lock l(mu_);
+      status_.Update(s);
+    }
+    opts_.StartCancel();
+  }
+
+  Status status() const override {
+    mutex_lock l(mu_);
+    return status_;
+  }
+
+
+  Device* src_device() const { return src_device_; }
+  const Rendezvous::Args& send_args() const { return send_args_; }
+  const Rendezvous::StatusCallback& done() const { return done_; }
+
+ private:
+  friend class RpcRemoteRendezvous;
+
+  // Start the main SendReplication call, checking for an async abort.
+  void StartSRCall(std::function<void()> send_done) {
+    using namespace std::placeholders;
+    StatusCallback cb = std::bind(
+        [this](std::function<void()> send_done,
+               // Begin unbound arguments.
+               const Status& s) {
+          if (!s.ok()) {
+            mutex_lock l(mu_);
+            status_.Update(s);
+          }
+          send_done();
+        },
+        std::move(send_done), _1);
+    wi_->SendReplicationAsync(&opts_, &req_, &resp_, std::move(cb));
+  }
+
+  string dst_worker_;
+  string dst_rel_device_;
+  WorkerInterface* wi_;
+  AllocatorAttributes alloc_attrs_;
+  Device* src_device_;
+  CallOptions opts_;
+  ::grpc::ByteBuffer req_;
+  SendReplicationResponse resp_;
+  Rendezvous::Args send_args_;
+  Rendezvous::StatusCallback done_;
+
+  mutable mutex mu_;
+  Status status_ GUARDED_BY(mu_);
+
+  TF_DISALLOW_COPY_AND_ASSIGN(RpcSendReplicationCall);
+};
+
+class RpcSendReplicationFreeList {
+ public:
+  RpcSendReplicationFreeList() {}
+  ~RpcSendReplicationFreeList() {
+    for (size_t i = 0; i < objects_.size(); i++) {
+      delete objects_[i];
+    }
+  }
+
+  RpcSendReplicationCall* New() {
+    {
+      mutex_lock l(mu_);
+      if (!objects_.empty()) {
+        RpcSendReplicationCall* result = objects_.back();
+        objects_.pop_back();
+        return result;
+      }
+    }
+    return new RpcSendReplicationCall;
+  }
+
+  void Release(RpcSendReplicationCall* obj, WorkerCacheInterface* wc) {
+    obj->Reset(wc);
+    {
+      mutex_lock l(mu_);
+      if (objects_.size() < kMaxObjects) {
+        objects_.push_back(obj);
+        return;
+      }
+    }
+    delete obj;
+  }
+
+ private:
+  static const int kMaxObjects = 1000;
+
+  mutex mu_;
+  std::vector<RpcSendReplicationCall*> objects_ GUARDED_BY(mu_);
+};
+
+static RpcSendReplicationFreeList* get_replication_call_freelist() {
+  static RpcSendReplicationFreeList* call_freelist = new RpcSendReplicationFreeList();
+  return call_freelist;
+}
+
+
+void RpcRemoteRendezvous::SendToRemoteAsync(const Rendezvous::ParsedKey& parsed,
+                                            const Rendezvous::Args& send_args,
+                                            const int64 global_step,
+                                            const string replication_name,
+                                            const Tensor& val,
+                                            StatusCallback done) {
+  CHECK(is_initialized());
+  Status s;
+
+  // Prepare a SendReplication call that can handle being aborted.
+  RpcSendReplicationCall* call = get_replication_call_freelist()->New();
+
+  // key.dst_device identifies a remote device.
+  if (!DeviceNameUtils::SplitDeviceName(parsed.dst_device, &call->dst_worker_,
+                                        &call->dst_rel_device_)) {
+    s = errors::Internal(parsed.dst_device,
+                         " is invalid remote destination device.");
+  }
+  WorkerSession* sess = session();
+  WorkerInterface* rwi = sess->worker_cache->CreateWorker(call->dst_worker_);
+  if (s.ok() && rwi == nullptr) {
+    s = errors::Internal("No worker known as ", call->dst_worker_);
+  }
+
+  Device* src_device;
+  if (s.ok()) {
+    s = sess->device_mgr->LookupDevice(parsed.src_device, &src_device);
+  }
+  if (!s.ok()) {
+    if (rwi != nullptr) {
+      sess->worker_cache->ReleaseWorker(call->dst_worker_, rwi);
+    }
+    get_replication_call_freelist()->Release(call, sess->worker_cache.get());
+    done(s);
+    return;
+  }
+
+  call->Init(rwi, step_id_, parsed.FullKey(), send_args.alloc_attrs, src_device,
+             send_args, global_step, replication_name, val, std::move(done));
+  s = call->status();
+  if (!s.ok()){
+    call->done()(s);
+    session()->worker_cache->ReleaseWorker(call->dst_worker_, call->wi_);
+    call->wi_ = nullptr;
+    get_replication_call_freelist()->Release(call, session()->worker_cache.get());
+    return;
+  }
+
+  // Record "call" in active_ so that it can be aborted cleanly.
+  RegisterCall(call);
+
+  // Start "call".
+  Ref();
+  call->Start([this, call]() {
+    // Removes "call" from send_active_. Prevent StartAbort().
+    DeregisterCall(call);
+    // If StartAbort was called prior to DeregisterCall, then the
+    // current status should be bad.
+    Status s = call->status();
+    call->done()(s);
+    session()->worker_cache->ReleaseWorker(call->dst_worker_, call->wi_);
+    call->wi_ = nullptr;
+    get_replication_call_freelist()->Release(call, session()->worker_cache.get());
     Unref();
   });
 }

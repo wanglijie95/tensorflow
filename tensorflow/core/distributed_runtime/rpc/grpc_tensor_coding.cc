@@ -38,6 +38,15 @@ void EncodeRecvTensorResponseToByteBuffer(const RecvTensorResponse& proto,
   result->Swap(&tmp);
 }
 
+void EncodeSendReplicationRequestToByteBuffer(const SendReplicationRequest& proto,
+                                              ::grpc::ByteBuffer* result) {
+  ::grpc::Slice slice(proto.ByteSizeLong());
+  proto.SerializeWithCachedSizesToArray(
+      const_cast<uint8*>(reinterpret_cast<const uint8*>(slice.begin())));
+  ::grpc::ByteBuffer tmp(&slice, 1);
+  result->Swap(&tmp);
+}
+
 // We generate a RecvTensorResponse protocol buffer encoding into "*result",
 // but where possible, we share the underlying Tensor buffer for "val", to
 // avoid an extra copy.
@@ -188,6 +197,111 @@ void EncodeTensorToByteBuffer(bool is_dead, const Tensor& val,
 
     // (B1) & (B2)
     e.WriteVarlengthBeginning(RecvTensorResponse::kTensorFieldNumber,
+                              overall_tensor_proto_bytesize);
+    // (C)
+    e.WriteRawBytes(StringPiece(e_skeleton.data(), e_skeleton.size()));
+    // (D1) & (D2)
+    e.WriteVarlengthBeginning(TensorProto::kTensorContentFieldNumber,
+                              tdata.size());
+
+    // All but the tensor backing store are serialized now
+
+    // Now allocate memory and put into the ByteBuffer
+    ::grpc::Slice slices[2];
+    int num_slices = 0;
+    {
+      size_t slice_len = e.size() + (tensor_data_is_large ? 0 : tdata.size());
+      slices[0] = ::grpc::Slice(slice_len);
+      memcpy(const_cast<uint8_t*>(slices[0].begin()), e.data(), e.size());
+      if (!tensor_data_is_large) {
+        // (E)
+        memcpy(const_cast<uint8_t*>(slices[0].begin()) + e.size(), tdata.data(),
+               tdata.size());
+      }
+      num_slices += 1;
+    }
+
+    if (tensor_data_is_large) {
+      // (E) Encode tensor data, but by sharing backing store
+      const TensorBuffer* buf = DMAHelper::buffer(&val);
+      buf->Ref();
+      slices[1] = ::grpc::Slice(
+          const_cast<void*>(static_cast<const void*>(tdata.data())),
+          tdata.size(),
+          [](void* backing) { static_cast<TensorBuffer*>(backing)->Unref(); },
+          const_cast<TensorBuffer*>(buf));
+      num_slices += 1;
+    }
+    size_t total_bytes = 0;
+    for (int i = 0; i < num_slices; i++) {
+      total_bytes += slices[i].size();
+    }
+    CHECK_EQ(total_bytes, expected_size);
+
+    ::grpc::ByteBuffer tmp(&slices[0], num_slices);
+    result->Swap(&tmp);
+  }
+}
+
+
+void EncodeTensorToByteBuffer(StringPiece key,
+                              int64 global_step,
+                              string tensor_name,
+                              const Tensor& val,
+                              ::grpc::ByteBuffer* result){
+  const int kLargeTensorBytes = 1024;
+  SendReplicationRequest request;
+  request.set_rendezvous_key(key.data(), key.size());
+  request.set_global_step(global_step);
+  request.set_tensor_name(tensor_name);
+  
+  if (!DataTypeCanUseMemcpy(val.dtype())) {
+    // Straightforward but slow path for complicated kinds of tensor data
+    // TODO(jeff,sanjay): If this becomes an issue, we could
+    // go directly from val -> ByteBuffer, with some effort.
+    val.AsProtoTensorContent(request.mutable_tensor());
+
+    // Encode full protocol buffer to a ByteBuffer
+    EncodeSendReplicationRequestToByteBuffer(request, result);
+  } else {
+    // skeleton is the encoded TensorProto contents (dtype and shape), but
+    // not the actual data
+    gtl::InlinedVector<char, 128> skeleton(SkeletonEncodingSizeUpperBound(val));
+    io::ProtoEncodeHelper e_skeleton(skeleton.data(), skeleton.size());
+    EncodeSkeleton(val, &e_skeleton);
+
+    StringPiece tdata = val.tensor_data();
+    uint32 overall_tensor_proto_bytesize =
+        (e_skeleton.size() +
+         VarLengthEncodingSize(TensorProto::kTensorContentFieldNumber,
+                               tdata.size()));
+    string header;  // All of SendReplicationRequest except the tensor() field
+    request.AppendToString(&header);
+
+    size_t expected_size =
+        (header.size() +
+         VarLengthEncodingSize(SendReplicationRequest::kTensorFieldNumber,
+                               overall_tensor_proto_bytesize));
+    // If "tensor_data_is_large == false", we copy the tensor data to the
+    // end of the buffer we are preparing that holds the rest of the
+    // SendReplicationRequest protocol buffer.
+    //
+    // If "tensor_data_is_large == true", we arrange to share the backing
+    // store of the data by creating a slice that also points to the
+    // backing store, with appropriate reference counts to keep the
+    // backing store alive as needed.
+    bool tensor_data_is_large = (tdata.size() > kLargeTensorBytes);
+    size_t encoder_size = expected_size - tdata.size();
+
+    // Encode all but the actual "tdata", but including the tag and
+    // varlength header for the "tdata"
+    gtl::InlinedVector<char, 1024> space(encoder_size);
+    io::ProtoEncodeHelper e(space.data(), space.size());
+    // (A)
+    e.WriteRawBytes(header);
+
+    // (B1) & (B2)
+    e.WriteVarlengthBeginning(SendReplicationRequest::kTensorFieldNumber,
                               overall_tensor_proto_bytesize);
     // (C)
     e.WriteRawBytes(StringPiece(e_skeleton.data(), e_skeleton.size()));

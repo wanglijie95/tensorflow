@@ -540,6 +540,7 @@ tf_cuda_library(
         "framework/register_types.h",
         "framework/register_types_traits.h",
         "framework/resource_mgr.h",
+        "framework/shadow_var.h",
         "framework/resource_op_kernel.h",
         "framework/selective_registration.h",
         "framework/session_state.h",

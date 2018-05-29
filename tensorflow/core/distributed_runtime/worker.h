@@ -23,6 +23,10 @@ limitations under the License.
 #include "tensorflow/core/distributed_runtime/session_mgr.h"
 #include "tensorflow/core/distributed_runtime/worker_interface.h"
 
+namespace grpc {
+class ByteBuffer;
+}  // namespace grpc
+
 namespace tensorflow {
 
 class CancellationManager;
@@ -82,6 +86,9 @@ class Worker : public WorkerInterface {
 
   void RecvTensorAsync(CallOptions* opts, const RecvTensorRequest* request,
                        TensorResponse* response, StatusCallback done) override;
+  
+  void SendReplicationAsync(CallOptions* call_opts, const ::grpc::ByteBuffer* request,
+                          SendReplicationResponse* response, StatusCallback done) override;
 
   void LoggingAsync(const LoggingRequest* request, LoggingResponse* response,
                     StatusCallback done) override;

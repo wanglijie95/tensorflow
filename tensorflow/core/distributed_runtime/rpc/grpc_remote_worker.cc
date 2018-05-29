@@ -54,6 +54,7 @@ class GrpcRemoteWorker : public WorkerInterface {
         cleanupgraph_(Method(GrpcWorkerMethod::kCleanupGraph)),
         cleanupall_(Method(GrpcWorkerMethod::kCleanupAll)),
         recvtensor_(Method(GrpcWorkerMethod::kRecvTensor)),
+        sendreplication_(Method(GrpcWorkerMethod::kSendReplication)),
         logging_(Method(GrpcWorkerMethod::kLogging)),
         tracing_(Method(GrpcWorkerMethod::kTracing)),
         logger_(logger) {}
@@ -111,6 +112,11 @@ class GrpcRemoteWorker : public WorkerInterface {
                        CleanupAllResponse* response,
                        StatusCallback done) override {
     IssueRequest(request, response, cleanupall_, std::move(done));
+  }
+
+  void SendReplicationAsync(CallOptions* call_opts, const ::grpc::ByteBuffer* request,
+                            SendReplicationResponse* response, StatusCallback done) override{
+    IssueRequest(request, response, sendreplication_, std::move(done), call_opts);
   }
 
   void RecvTensorAsync(CallOptions* call_opts, const RecvTensorRequest* request,
@@ -196,6 +202,12 @@ class GrpcRemoteWorker : public WorkerInterface {
     new RPCState<TensorResponse>(&stub_, cq_, method, *request, response,
                                  std::move(done), call_opts);
   }
+  void IssueRequest(const ::grpc::ByteBuffer* request, protobuf::Message* response,
+                    const ::grpc::string& method, StatusCallback done,
+                    CallOptions* call_opts = nullptr) {
+    new RPCState<protobuf::Message>(&stub_, cq_, method, request, response,
+                                   std::move(done), call_opts);
+  }
 
   // Helper function for initializing the RpcMethod objects below.
   const char* Method(GrpcWorkerMethod id) { return GrpcWorkerMethodName(id); }
@@ -213,6 +225,7 @@ class GrpcRemoteWorker : public WorkerInterface {
   const ::grpc::string cleanupgraph_;
   const ::grpc::string cleanupall_;
   const ::grpc::string recvtensor_;
+  const ::grpc::string sendreplication_;
   const ::grpc::string logging_;
   const ::grpc::string tracing_;
 

@@ -52,6 +52,13 @@ class IntraProcessRendezvous : public Rendezvous {
   // local_, in the remote case it initiates an RPC request.
   void RecvAsync(const ParsedKey& key, const Rendezvous::Args& args,
                  DoneCallback done) override;
+  
+  void SendReplicationAsync(const ParsedKey& parsed,
+                          const Rendezvous::Args& send_args,
+                          const int64 global_step,
+                          const string replication_name,
+                          const Tensor& val,
+                          StatusCallback done) override;
 
   void StartAbort(const Status& status) override;
 
