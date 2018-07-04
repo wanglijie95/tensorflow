@@ -227,39 +227,33 @@ class Scaffold(object):
           recovery_clock = training_util.get_or_create_recovery_clock(server_lib.get_num_tasks("ps") + 
                                                                       server_lib.get_num_tasks("worker"))
         
-        # Set this device recover operation
-        worker_shadow_names = array_ops.placeholder(dtypes.string)
-        worker_shadow_steps = array_ops.placeholder(dtypes.int64)
-        ops.add_to_collection("worker_shadow_names", worker_shadow_names)
-        ops.add_to_collection("worker_shadow_steps", worker_shadow_steps)
+
+        # Get the var names that should be recovered.
+        recovered_vars = array_ops.placeholder(dtypes.string)
+        ops.add_to_collection("recovered_vars", recovered_vars)
+        
+        # Get worker device shadow names
+        with ops.device(server_lib.get_default_device()):
+          _, worker_shadow_names, worker_shadow_steps = data_flow_ops.get_shadow_names(recovered_vars)
+
+        # Set worker device recover operation
         ops.add_to_collection("worker_get_recovered_vars",
               recovery_clock.get_recovered_vars(server_lib.get_task_index(),
                                                 worker_shadow_names,
                                                 worker_shadow_steps))
-
-        # Set this device all shadow names
-        with ops.device(server_lib.get_default_device()):
-          _, shadow_names, shadow_steps = data_flow_ops.get_all_shadow_names()
-        ops.add_to_collection("worker_all_shadow_names", shadow_names)
-        ops.add_to_collection("worker_all_shadow_steps", shadow_steps)
         
         
         if server_lib.get_task_index() < server_lib.get_num_tasks("ps"):
-          # # Set corresponding PS recover operation
-          ps_shadow_names = array_ops.placeholder(dtypes.string)
-          ps_shadow_steps = array_ops.placeholder(dtypes.int64)
-          ops.add_to_collection("ps_shadow_names", ps_shadow_names)
-          ops.add_to_collection("ps_shadow_steps", ps_shadow_steps)
+          # Get ps device shadow names
+          with ops.device("/job:ps/task:%d"%server_lib.get_task_index()):
+            _, ps_shadow_names, ps_shadow_steps = data_flow_ops.get_shadow_names(recovered_vars)
+
+          # Set corresponding PS recover operation
           ops.add_to_collection("ps_get_recovered_vars",
                 recovery_clock.get_recovered_vars(server_lib.get_task_index() + server_lib.get_num_tasks("worker"),
                                                   ps_shadow_names,
                                                   ps_shadow_steps))
           
-          # Set this device all shadow names
-          with ops.device("/job:ps/task:%d"%server_lib.get_task_index()):
-            _, shadow_names, shadow_steps = data_flow_ops.get_all_shadow_names()
-          ops.add_to_collection("ps_all_shadow_names", shadow_names) 
-          ops.add_to_collection("ps_all_shadow_steps", shadow_steps)
       
       # Default ops for checking the recovery is done or not
       def default_recovery_done_op():

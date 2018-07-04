@@ -1436,6 +1436,16 @@ REGISTER_OP("GetShadow")
  Get all shadow names in this worker.
  )doc");
 
+REGISTER_OP("GetShadowNames")
+    .Input("var_list : string")
+    .Output("shadow_names_num: int32")
+    .Output("shadow_names: string")
+    .Output("shadow_steps: int64")
+    .SetShapeFn(shape_inference::UnknownShape)
+    .Doc(R"doc(
+ Get shadow names and steps in the list.
+ )doc");
+
   REGISTER_OP("SendReplication")
     .Input("tensor: dtype")
     .Input("global_step: int64")

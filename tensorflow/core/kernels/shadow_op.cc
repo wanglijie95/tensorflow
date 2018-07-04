@@ -75,6 +75,61 @@ class GetAllShadowNamesOp : public OpKernel {
 };
 REGISTER_KERNEL_BUILDER(Name("GetAllShadowNames").Device(DEVICE_CPU), GetAllShadowNamesOp);
 
+
+
+// Get the shadow names and steps in a list.
+class GetShadowNamesOp : public OpKernel {
+ public:
+  explicit GetShadowNamesOp(OpKernelConstruction* context) : OpKernel(context) {}
+  void Compute(OpKernelContext* ctx) override {
+    
+    // Get var list.
+    const Tensor& var_list = ctx->input(0);
+    const auto& var_list_flat = var_list.flat<string>();
+    const int var_list_length = static_cast<int>(var_list.NumElements());
+
+    std::vector<ShadowVar*> shadows;
+    // Get shadow names and step in var list.
+    for (int i = 0; i < var_list_length; ++i){
+      string var_name = var_list_flat(i);
+      ShadowVar* var = g_shadow_manager.GetShadow(var_name);
+      // The var name exist in shadow manager.
+      if (var != nullptr){
+        shadows.push_back(var);
+      }
+    }
+
+    for(int i = 0; i < shadows.size(); ++i){
+      std::cout << "(" << shadows[i]->name() << ", "
+                << shadows[i]->global_step() << "), ";
+    }
+    std::cout << std::endl;
+    
+    Tensor* output = nullptr;
+    OP_REQUIRES_OK(ctx,
+                  ctx->allocate_output(0, TensorShape({}), &output));
+    auto num = output->tensor<int32, 0>();
+    num() = shadows.size();
+
+    Tensor* output_names = nullptr;
+    Tensor* output_steps = nullptr;
+    OP_REQUIRES_OK(ctx,
+                ctx->allocate_output(1, TensorShape({shadows.size()}), &output_names));
+    OP_REQUIRES_OK(ctx,
+                ctx->allocate_output(2, TensorShape({shadows.size()}), &output_steps));
+    auto var_names = output_names->tensor<string, 1>();
+    auto var_steps = output_steps->tensor<int64, 1>();
+    for(int i = 0; i < shadows.size(); ++i){
+      ShadowVar* var = shadows[i];
+      var_names(i) = var->name();
+      var_steps(i) = var->global_step();
+    }
+
+  }
+};
+REGISTER_KERNEL_BUILDER(Name("GetShadowNames").Device(DEVICE_CPU), GetShadowNamesOp);
+
+
 int StringToInt(string& str){
   std::stringstream stream(str);
   int temp;
@@ -183,6 +238,10 @@ class SendReplicationV2Op : public AsyncOpKernel {
 
     ReplicationCounter* counter = g_replication_counter_manager.GetOrCreateCounter(tensor_name_);
 
+    // Increment the send counter.
+    ++(counter->send_counter);
+
+    // check the send counter.
     if (counter->send_counter >= worker_num_){
       // We can send replication here.
       // Get the worker side replicatoin num
@@ -282,8 +341,7 @@ class SendReplicationV2Op : public AsyncOpKernel {
       }
       
     } else {
-      // we just increment the send counter.
-      ++(counter->send_counter);
+      // do nothing, return.
       // std::cout << "tensorflow::INCREMENT  "
       //           << "tensor_name : " << tensor_name_ 
       //           << ", just increment send counter: " << counter->send_counter
