@@ -25,6 +25,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import init_ops
 from tensorflow.python.ops import resource_variable_ops
 from tensorflow.python.ops import state_ops
+from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.ops import variables
 from tensorflow.python.platform import tf_logging as logging
@@ -249,3 +250,86 @@ def _increment_global_step(increment, graph=None):
     with g.name_scope(global_step_tensor.op.name + '/'):
       with ops.control_dependencies([global_step_read_tensor]):
         return state_ops.assign_add(global_step_tensor, increment)
+
+@tf_export('train.get_recovery_clock')
+def get_recovery_clock(graph=None):
+  """Get the recovery_clock.
+
+  We first try to find recovery_clock in the collection `RECOVERY_CLOCK`.
+
+  Args:
+    graph: The graph to find the recovery_clock in. If missing, use default graph.
+
+  Returns:
+    The Ref of the recovery_clock.
+
+  Raises:
+    TypeError: If recovery_clock is not type `RecoveryClock`, raise TypeError
+  """
+  graph = graph or ops.get_default_graph()
+  refs = graph.get_collection(ops.GraphKeys.RECOVERY_CLOCK)
+
+  if len(refs) == 1:
+    recovery_clock = refs[0]
+    if not isinstance(recovery_clock, data_flow_ops.RecoveryClock):
+      raise TypeError('Existing "recovery_clock" does not have RecoveryClock type: %s' %
+                      type(recovery_clock))
+    return recovery_clock
+  elif not refs:
+    return None
+  else:
+    logging.error('Multiple recovery clocks in recovery_clock collection.')
+    return None
+
+@tf_export('train.create_recovery_clock')
+def create_recovery_clock(total_num_replicas, graph=None):
+  """Create RecoveryClock in graph.
+
+  Args:
+    graph: The graph in which to create the RecoveryClock. If missing,
+      use default graph.
+
+  Returns:
+    The Ref of `RecoveryClock`.
+
+  Raises:
+    ValueError: If RecoveryClock is already defined.
+  """
+  graph = graph or ops.get_default_graph()
+  if get_recovery_clock(graph) is not None:
+    raise ValueError('"RecoveryClock" already exists.')
+
+  # if server_lib.get_cluster_spec() is None:
+  #   raise ValueError(
+  #     "The ClusterSpec is not be specified now, so can't create RecoveryClock")
+  # if (server_lib.get_job_name() is None) or (server_lib.get_task_index() is None):
+  #   raise ValueError(
+  #     "The Server is not be created or specified, so can't create RecoveryClock")
+  # if server_lib.get_job_name() != "worker":
+  #   raise ValueError("This task is not worker, Maybe some thing wrong")
+  # total_num_replicas = server_lib.get_num_tasks("worker")
+
+  # Create in proper graph and base name_scope.
+  with graph.as_default() as g, g.name_scope(None):
+    recovery_clock = data_flow_ops.RecoveryClock(
+                                    total_num_replicas=total_num_replicas,
+                                    shared_name="recovery_clock")
+    graph.add_to_collection(ops.GraphKeys.RECOVERY_CLOCK, recovery_clock)
+    return recovery_clock
+
+@tf_export('train.get_or_create_recovery_clock')
+def get_or_create_recovery_clock(total_num_replicas, graph=None):
+  """Returns and create (if necessary) the recovery clock.
+
+  Args:
+    graph: The graph in which to create the recovery clock. If missing, use
+      default graph.
+
+  Returns:
+    The local step tensor.
+  """
+  graph = graph or ops.get_default_graph()
+  recovery_clock = get_recovery_clock(graph)
+  if recovery_clock is None:
+    recovery_clock = create_recovery_clock(total_num_replicas, graph)
+  return recovery_clock

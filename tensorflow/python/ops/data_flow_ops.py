@@ -35,6 +35,7 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import gen_data_flow_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import variables
 # go/tf-wildcard-import
 # pylint: disable=wildcard-import
 from tensorflow.python.ops.gen_data_flow_ops import *
@@ -2382,3 +2383,81 @@ class RecordInput(object):
           batch_index = index % self._batches
           batch_list[batch_index].append(protobuf)
         return batch_list
+
+@tf_export("RecoveryClock")
+class RecoveryClock(object):
+  """ A recovery clock for getting all clocks(local_step = shadow of global_step) and
+    return the max. The purpose is to find the lastest version
+    of parameter between all workers.
+  """
+  def __init__(self,
+               total_num_replicas,
+               shared_name,
+               name="recovery_clock"):
+    """Creates a new RecoveryClock
+
+    Args:
+      total_num_replicas: The number of replicas in cluster(workers)
+      shared_name: Optional. If non-empty, this recovery clock will
+        be shared under the given name across multiple sessions.
+      name: Optional name for the recovery clock.
+    """
+    if not isinstance(total_num_replicas, int):
+        raise TypeError("Total num replicas is required and must be int type")
+    if not isinstance(shared_name, str):
+        raise TypeError(
+        "Shared name is required and must be str type")
+
+    self._total_num_replicas = total_num_replicas
+    self._share_name = shared_name
+    self._name = name
+    self._clock_ref = gen_data_flow_ops.recovery_clock(
+                total_num_replicas=total_num_replicas,
+                shared_name=shared_name, name=name)
+
+  def get_lastest_worker(self, replica_index, global_step_shadow, name=None):
+    """Attempts to get the index of replica who has the lastest
+      parameters. If task `i` has the lastest version of parameters,
+      then return `i`.
+
+    Args:
+      replica_index: A `int` type number. The index of this replica.
+      global_step_shadow: A `int`type Tensor. The local_step(shadow of global_step)
+                          of this replica.
+      name: Optional name for the operation.
+
+    Returns:
+      A `int` type Tensor, represent the index of replica.
+      who has the lastest parameters.
+    """
+    if not isinstance(replica_index, int):
+      raise TypeError("Replica index is required and must be int type")
+    if not isinstance(global_step_shadow, (ops.Tensor, variables.Variable)):
+      raise TypeError("Local step is required and must be Tensor or Variable type")
+
+    return gen_data_flow_ops.get_lastest_worker(
+                        self._clock_ref, global_step_shadow, replica_index, name)
+
+  def get_recovered_vars(self, replica_index, var_names, var_steps, name=None):
+    """Attempts to get the `variables` that need to be recovered by `replica_index`.
+    That's mean the shadows of `variables` in `replica_index` is lastest.
+
+    Args:
+      replica_index: A `int` type number. The index of this replica.
+      var_names: A "string" Tensor of the variables's name who has shadow in this replica.
+      var_steps: A "int64" Tensor of the variables's steps.
+      name: Optional name for the operation.
+
+    Returns:
+      A string Tensor, represent the variables' name that need to be recovered
+      on this replica.
+    """
+    if not isinstance(replica_index, int):
+      raise TypeError("Replica index is required and must be int type")
+    if not isinstance(var_names, (ops.Tensor, variables.Variable)):
+      var_names = ops.convert_to_tensor(var_names)
+    if not isinstance(var_steps, (ops.Tensor, variables.Variable)):
+      var_names = ops.convert_to_tensor(var_steps)
+
+    return gen_data_flow_ops.get_recovered_vars(
+                        self._clock_ref, var_names, var_steps, replica_index, name)

@@ -198,7 +198,7 @@ class SessionManager(object):
       if wait_for_checkpoint and wait_time < max_wait_secs:
         logging.info("Waiting for checkpoint to be available.")
         time.sleep(self._recovery_wait_secs)
-        wait_time += self._recovery_wait_secs
+        wait_time += self._recovery_wait_secs 
         ckpt = saver_mod.get_checkpoint_state(checkpoint_dir)
       else:
         return sess, False
@@ -207,6 +207,110 @@ class SessionManager(object):
     saver.restore(sess, ckpt.model_checkpoint_path)
     saver.recover_last_checkpoints(ckpt.all_model_checkpoint_paths)
     return sess, True
+
+
+  def server_restart_session(self, master, ps_state_op, recovery_done_op, config=None):
+    """ Create a `Session`, the lastest worker is responsible for
+        doing the recovery operations.
+
+    When recovery from PS failed, each worker will call this function.
+    First, get the lastest worker. Then, the lastest worker do the
+    recovery operations, other workers wait until the recovery_ops done.
+    """
+    logging.info("Call function server_restart_session.====================")
+    self._target = master
+    sess = session.Session(self._target, graph=self._graph, config=config)
+
+    # The state(active or dead) of all ps
+    ps_state = sess.run(ps_state_op)
+    # The all ps index
+    all_ps = np.arange(len(ps_state))
+    # Get all survive ps index
+    survive_ps = all_ps[ps_state].tolist()
+    # Get all recovered ps index
+    recover_ps = all_ps[~np.array(ps_state)].tolist()
+
+    # Get all var should be recovered
+    recovered_var = []
+    for idx in recover_ps:
+      var_list = ops.get_collection("ps_%d_variables"%idx)
+      recovered_var += var_list
+    
+    # # Get all shadow names and steps
+    # _, worker_all_shadow_names, worker_all_shadow_steps =
+    #   sess.run(ops.get_collection("worker_all_shadow_names")[0])
+    # # worker_all_shadow_steps = 
+    # #            ops.get_collection("worker_all_shadow_steps")[0]])
+    # _, ps_all_shadow_names, ps_all_shadow_steps = 
+    #   sess.run(ops.get_collection("ps_all_shadow_names")[0])
+    # #  ops.get_collection("ps_all_shadow_steps")[0]])
+
+    # Get all shadow names and steps
+    worker_all_shadow_names, worker_all_shadow_steps = sess.run([ops.get_collection("worker_all_shadow_names")[0], ops.get_collection("worker_all_shadow_steps")[0]])
+    # worker_all_shadow_steps = 
+    #            ops.get_collection("worker_all_shadow_steps")[0]])
+    ps_all_shadow_names, ps_all_shadow_steps = sess.run([ops.get_collection("ps_all_shadow_names")[0], ops.get_collection("ps_all_shadow_steps")[0]])
+    #  ops.get_collection("ps_all_shadow_steps")[0]])
+    
+    print("worker_all_shadow_names : ", worker_all_shadow_names)
+    print("worker_all_shadow_steps : ", worker_all_shadow_steps)
+    print("ps_all_shadow_names : ", ps_all_shadow_names)
+    print("ps_all_shadow_steps : ", ps_all_shadow_steps)
+
+    # Get the intersection
+    recovered_var_names = [v.op.name for v in recovered_var]
+    print("recovered_var_names : ", recovered_var_names)
+    # Set worker shadow
+    worker_shadow_names = []
+    worker_shadow_steps = []
+    for name, step in list(zip(worker_all_shadow_names, worker_all_shadow_steps)):
+      if name.decode() in recovered_var_names:
+        worker_shadow_names.append(name)
+        worker_shadow_steps.append(step)
+    # Set ps shadow
+    ps_shadow_names = []
+    ps_shadow_steps = []
+    for name, step in list(zip(ps_all_shadow_names, ps_all_shadow_steps)):
+      if name.decode() in recovered_var_names:
+        ps_shadow_names.append(name)
+        ps_shadow_steps.append(step)
+    print("worker_shadow_names", worker_shadow_names)
+    print("worker_shadow_steps", worker_shadow_steps)
+    print("ps_shadow_names", ps_shadow_names)
+    print("ps_shadow_steps", ps_shadow_steps)
+    # Get the var should be recovered by this worker or ps
+    worker_recovered_names, ps_recovered_names = sess.run([ops.get_collection("worker_get_recovered_vars")[0], 
+                                                          ops.get_collection("ps_get_recovered_vars")[0]],
+                                                          feed_dict={ops.get_collection("worker_shadow_names")[0] : worker_shadow_names,
+                                                                      ops.get_collection("worker_shadow_steps")[0] : worker_shadow_steps,
+                                                                      ops.get_collection("ps_shadow_names")[0] : ps_shadow_names,
+                                                                      ops.get_collection("ps_shadow_steps")[0] : ps_shadow_steps})
+    
+    print("worker_recovered_names : ", worker_recovered_names)
+    print("ps_recovered_names : ", ps_recovered_names)
+
+    # Run the real recover operation
+    recover_ops = []
+    for var in recovered_var:
+      if var.op.name.encode() in worker_recovered_names:
+        recover_ops.append(var.recover_ops["worker_recover"])  
+      if var.op.name.encode() in ps_recovered_names:
+        recover_ops.append(var.recover_ops["ps_recover"])
+    print("Before run recover_ops, number is : ", len(recover_ops))
+    sess.run(recover_ops)
+    print("After run recover_ops")
+
+    print("In server_restart_session, recover_op has done!!!")
+    # Check the recovery operations is done or not
+    # If not done, wait for done
+    while True:
+      local_init_success, msg = self._try_run_local_init_op(sess)
+      if local_init_success:
+        # Successful if local_init_op is None, or ready_for_local_init_op passes
+        is_ready, msg = _ready(recovery_done_op, sess,
+                            "Recovery Operations is not done!")
+        if is_ready:
+          return sess
 
   def prepare_session(self,
                       master,

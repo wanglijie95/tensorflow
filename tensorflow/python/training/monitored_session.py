@@ -28,7 +28,10 @@ from tensorflow.core.protobuf import config_pb2
 from tensorflow.python.estimator import util
 from tensorflow.python.framework import errors
 from tensorflow.python.framework import ops
+from tensorflow.python.framework import dtypes
 from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import state_ops
+from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import lookup_ops
 from tensorflow.python.ops import resources
@@ -41,6 +44,8 @@ from tensorflow.python.training import queue_runner
 from tensorflow.python.training import saver as training_saver
 from tensorflow.python.training import session_manager as sm
 from tensorflow.python.training import session_run_hook
+from tensorflow.python.training import server_lib
+from tensorflow.python.training import training_util
 from tensorflow.python.util.tf_export import tf_export
 
 
@@ -171,6 +176,8 @@ class Scaffold(object):
     self._local_init_op = local_init_op
     self._summary_op = summary_op
     self._saver = saver
+    self._ps_state_op = []
+    self._recovery_done_op = None
 
   def finalize(self):
     """Creates operations if needed and finalizes the graph."""
@@ -207,6 +214,62 @@ class Scaffold(object):
       self._summary_op = Scaffold.get_or_default('summary_op',
                                                  ops.GraphKeys.SUMMARY_OP,
                                                  summary.merge_all)
+    if ops.k_pacemaker() != 0:
+      # Set ps state
+      if not self._ps_state_op:
+        for i in range(server_lib.get_num_tasks("ps")):
+          first_var = ops.get_collection("ps_%d_variables"%i)[0]
+          self._ps_state_op.append(state_ops.is_variable_initialized(first_var))
+      
+        # Set RecoveryClock
+        global_step = training_util.get_or_create_global_step()
+        with ops.colocate_with(global_step):
+          recovery_clock = training_util.get_or_create_recovery_clock(server_lib.get_num_tasks("ps") + 
+                                                                      server_lib.get_num_tasks("worker"))
+        
+        # Set this device recover operation
+        worker_shadow_names = array_ops.placeholder(dtypes.string)
+        worker_shadow_steps = array_ops.placeholder(dtypes.int64)
+        ops.add_to_collection("worker_shadow_names", worker_shadow_names)
+        ops.add_to_collection("worker_shadow_steps", worker_shadow_steps)
+        ops.add_to_collection("worker_get_recovered_vars",
+              recovery_clock.get_recovered_vars(server_lib.get_task_index(),
+                                                worker_shadow_names,
+                                                worker_shadow_steps))
+
+        # Set this device all shadow names
+        with ops.device(server_lib.get_default_device()):
+          _, shadow_names, shadow_steps = data_flow_ops.get_all_shadow_names()
+        ops.add_to_collection("worker_all_shadow_names", shadow_names)
+        ops.add_to_collection("worker_all_shadow_steps", shadow_steps)
+        
+        
+        if server_lib.get_task_index() < server_lib.get_num_tasks("ps"):
+          # # Set corresponding PS recover operation
+          ps_shadow_names = array_ops.placeholder(dtypes.string)
+          ps_shadow_steps = array_ops.placeholder(dtypes.int64)
+          ops.add_to_collection("ps_shadow_names", ps_shadow_names)
+          ops.add_to_collection("ps_shadow_steps", ps_shadow_steps)
+          ops.add_to_collection("ps_get_recovered_vars",
+                recovery_clock.get_recovered_vars(server_lib.get_task_index() + server_lib.get_num_tasks("worker"),
+                                                  ps_shadow_names,
+                                                  ps_shadow_steps))
+          
+          # Set this device all shadow names
+          with ops.device("/job:ps/task:%d"%server_lib.get_task_index()):
+            _, shadow_names, shadow_steps = data_flow_ops.get_all_shadow_names()
+          ops.add_to_collection("ps_all_shadow_names", shadow_names) 
+          ops.add_to_collection("ps_all_shadow_steps", shadow_steps)
+      
+      # Default ops for checking the recovery is done or not
+      def default_recovery_done_op():
+        return variables.report_uninitialized_variables()
+      # Set recover done
+      if self._recovery_done_op is None:
+        self._recovery_done_op = Scaffold.get_or_default(
+              'recovery_done_op', ops.GraphKeys.RECOVERY_DONE_OP,
+              default_recovery_done_op)
+    
     # pylint: disable=g-long-lambda
     if self._saver is None:
       self._saver = training_saver._get_saver_or_default()  # pylint: disable=protected-access
@@ -216,6 +279,14 @@ class Scaffold(object):
     ops.get_default_graph().finalize()
     logging.info('Graph was finalized.')
     return self
+
+  @property
+  def ps_state_op(self):
+    return self._ps_state_op
+
+  @property
+  def recovery_done_op(self):
+    return self._recovery_done_op
 
   @property
   def init_fn(self):
@@ -466,6 +537,12 @@ class ChiefSessionCreator(SessionCreator):
         init_feed_dict=self._scaffold.init_feed_dict,
         init_fn=self._scaffold.init_fn)
 
+  def server_restart_session(self):
+    return self._get_session_manager().server_restart_session(
+           self._master,
+           self._scaffold.ps_state_op,
+           self._scaffold.recovery_done_op,
+           config=self._config)
 
 @tf_export('train.WorkerSessionCreator')
 class WorkerSessionCreator(SessionCreator):
@@ -508,6 +585,13 @@ class WorkerSessionCreator(SessionCreator):
         self._master, config=self._config,
         max_wait_secs=self._max_wait_secs
     )
+  
+  def server_restart_session(self):
+    return self._get_session_manager().server_restart_session(
+           self._master,
+           self._scaffold.ps_state_op,
+           self._scaffold.recovery_done_op,
+           config=self._config)
 
 
 class _MonitoredSession(object):
@@ -694,6 +778,20 @@ class _MonitoredSession(object):
       """Creates a coordinated session."""
       # Keep the tf_sess for unit testing.
       self.tf_sess = self._session_creator.create_session()
+      # We don't want coordinator to suppress any exception.
+      self.coord = coordinator.Coordinator(clean_stop_exception_types=[])
+      queue_runner.start_queue_runners(sess=self.tf_sess, coord=self.coord)
+      # Inform the hooks that a new session has been created.
+      for hook in self._hooks:
+        hook.after_create_session(self.tf_sess, self.coord)
+      return _CoordinatedSession(
+          _HookedSession(self.tf_sess, self._hooks), self.coord,
+          self._stop_grace_period_secs)
+
+    def server_restart_session(self):
+      """Creates a restart coordinated session."""
+      # Keep the tf_sess for unit testing.
+      self.tf_sess = self._session_creator.server_restart_session()
       # We don't want coordinator to suppress any exception.
       self.coord = coordinator.Coordinator(clean_stop_exception_types=[])
       queue_runner.start_queue_runners(sess=self.tf_sess, coord=self.coord)
@@ -1036,7 +1134,10 @@ class _RecoverableSession(_WrappedSession):
     while True:
       try:
         if not self._sess:
-          self._sess = self._create_session()
+          if ops.k_pacemaker() != 0:
+            self._sess = self._sess_creator.server_restart_session()
+          else :
+            self._sess = self._create_session()
         return self._sess.run(fetches,
                               feed_dict=feed_dict,
                               options=options,
@@ -1048,6 +1149,10 @@ class _RecoverableSession(_WrappedSession):
                      'created. Error: %s', e)
         self.close()
         self._sess = None
+      # If some other error(not in _PREEMPTION_ERRORS) raised,
+      # we print error message.      
+      except Exception as e:
+        raise Exception("An undesirable error was raised. Error: %s"%e)
 
   def run_step_fn(self, step_fn, raw_session, run_with_hooks):
     while True:

@@ -28,8 +28,10 @@ from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import gen_array_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import state_ops
+from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.training import checkpointable
+from tensorflow.python.training import server_lib
 from tensorflow.python.util import compat
 from tensorflow.python.util import tf_should_use
 from tensorflow.python.util.deprecation import deprecated
@@ -233,6 +235,60 @@ class Variable(checkpointable.CheckpointableBase):
           dtype=dtype,
           expected_shape=expected_shape,
           constraint=constraint)
+    
+    
+    if ops.k_pacemaker() != 0:
+      self._shadow = {}
+      self._recover_ops = {}
+      # Parse the variable device.
+      var_job = None
+      var_task = None
+      for device_str in self.device.split("/"):
+        if not device_str:
+          continue
+        key, value = device_str.split(":")
+        if key == "job":
+          var_job = value
+        if key == "task":
+          var_task = int(value)
+      if var_job is None or var_task is None:
+        raise ValueError("You should specify the \'job\' and \'task\' of "
+                         "Variable : %s"%self.name)
+      if var_job == "ps":
+        # Add to collection for recover.
+        ops.add_to_collection("%s_%d_variables"%(var_job, var_task), self)
+
+      # Parse current device.
+      current_job = None
+      current_task = None
+      current_device = server_lib.get_default_device()
+      for device_str in current_device.split("/"):
+        if not device_str:
+          continue
+        key, value = device_str.split(":")
+        if key == "job":
+          current_job = value
+        if key == "task":
+          current_task = int(value)
+      if current_job is None or current_task is None:
+        raise ValueError("Some thing error. Default device should has job and task.")
+
+      # Set the `getshadow` operation.
+      # The worker "job:worker/task:i" responsible for itself and "job:ps/task:i"
+      # if "job:ps/task:i" existed.
+      with ops.colocate_with(None, ignore_existing=True):
+        with ops.device(current_device):
+          worker_shadow = data_flow_ops.get_shadow(self._variable.op.name, self.dtype, self.shape)
+      self._shadow["worker_shadow"] = worker_shadow
+      self._recover_ops["worker_recover"] = state_ops.assign(self._variable, worker_shadow)
+
+      # Set the "ps_shadow" and "ps_recover"
+      if current_task < server_lib.get_num_tasks("ps"):
+        with ops.colocate_with(None, ignore_existing=True):
+          with ops.device("/job:ps/task:%d"%current_task):
+            ps_shadow = data_flow_ops.get_shadow(self._variable.op.name, self.dtype, self.shape)
+        self._shadow["ps_shadow"] = ps_shadow
+        self._recover_ops["ps_recover"] = state_ops.assign(self._variable, ps_shadow)
 
   def __repr__(self):
     if context.executing_eagerly():
@@ -319,6 +375,11 @@ class Variable(checkpointable.CheckpointableBase):
 
     if trainable and ops.GraphKeys.TRAINABLE_VARIABLES not in collections:
       collections = list(collections) + [ops.GraphKeys.TRAINABLE_VARIABLES]
+    
+    # If var is not trainable, add to untrainable
+    if ops.GraphKeys.GLOBAL_VARIABLES in collections and ops.GraphKeys.TRAINABLE_VARIABLES not in collections:
+      collections = list(collections) + [ops.GraphKeys.GLOBAL_AND_UNTRAINABLE_VARIABLES]
+
     with ops.init_scope():
       # Ensure that we weren't lifted into the eager context.
       if context.executing_eagerly():
@@ -968,7 +1029,14 @@ class Variable(checkpointable.CheckpointableBase):
       variable name.
     """
     return self.name[:-2]
+  
+  @property
+  def shadow(self):
+    return self._shadow
 
+  @property
+  def recover_ops(self):
+    return self._recover_ops
   @property
   def initializer(self):
     """The initializer operation for this variable."""

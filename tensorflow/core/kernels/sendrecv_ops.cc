@@ -13,6 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include <iostream>
+#include <vector>
+
 #include "tensorflow/core/kernels/sendrecv_ops.h"
 
 #include "tensorflow/core/framework/op.h"
@@ -20,6 +23,8 @@ limitations under the License.
 #include "tensorflow/core/lib/strings/numbers.h"
 #include "tensorflow/core/lib/strings/strcat.h"
 #include "tensorflow/core/platform/logging.h"
+#include "tensorflow/core/framework/shadow_var.h"
+#include "tensorflow/core/kernels/replication_counter.h"
 
 namespace tensorflow {
 
@@ -63,6 +68,8 @@ SendOp::SendOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
                         reinterpret_cast<int64*>(&send_device_incarnation)));
   string tensor_name;
   OP_REQUIRES_OK(ctx, ctx->GetAttr("tensor_name", &tensor_name));
+  OP_REQUIRES_OK(ctx, ctx->GetAttr("is_var_tensor", &is_var_tensor_));
+  OP_REQUIRES_OK(ctx, ctx->GetAttr("var_name", &var_name_));
   key_prefix_ = GetRendezvousKeyPrefix(send_device, recv_device,
                                        send_device_incarnation, tensor_name);
   // The vast majority of Send nodes are outside any loop context, so
@@ -86,6 +93,31 @@ void SendOp::Compute(OpKernelContext* ctx) {
   Rendezvous::Args args;
   args.device_context = ctx->op_device_context();
   args.alloc_attrs = ctx->input_alloc_attr(0);
+  
+  // Record the pull worker for variable.
+  if (is_var_tensor_){
+    // Parse the key_prefix
+    std::vector<string> items = str_util::Split(key_prefix_, ";");
+    string send_device = items[0];
+    string recv_device = items[2];
+    string send_job = str_util::Split(send_device, "/")[1];
+    string recv_job = str_util::Split(recv_device, "/")[1];
+    
+    if (send_job=="job:ps" && recv_job == "job:worker"){
+      items = str_util::Split(recv_device, "/");
+      // We just save the job and task
+      // Such as "/job:worker/task:0"
+      string recv_worker = "/" + items[1] + "/" + items[3];
+      
+      // Get the counter for "var_name_"
+      ReplicationCounter* counter = g_replication_counter_manager.GetOrCreateCounter(var_name_);
+      {
+        mutex_lock l(counter->mu);
+        ++(counter->pull_counter);
+        counter->pull_worker_set.insert(recv_worker);
+      }
+    }
+  }
 
   FrameAndIter frame_iter = GetFrameAndIter(ctx, hostmem_sendrecv_);
   if (frame_iter == FrameAndIter(0, 0)) {
@@ -131,6 +163,8 @@ RecvOp::RecvOp(OpKernelConstruction* ctx) : AsyncOpKernel(ctx) {
                         reinterpret_cast<int64*>(&send_device_incarnation)));
   string tensor_name;
   OP_REQUIRES_OK(ctx, ctx->GetAttr("tensor_name", &tensor_name));
+  OP_REQUIRES_OK(ctx, ctx->GetAttr("is_var_tensor", &is_var_tensor_));
+  OP_REQUIRES_OK(ctx, ctx->GetAttr("var_name", &var_name_));
   key_prefix_ = GetRendezvousKeyPrefix(send_device, recv_device,
                                        send_device_incarnation, tensor_name);
   // The vast majority of Recv nodes are outside any loop context, so
@@ -144,10 +178,13 @@ RecvOp::RecvOp(OpKernelConstruction* ctx) : AsyncOpKernel(ctx) {
 
 namespace {
 Rendezvous::DoneCallback make_recv_callback(OpKernelContext* ctx,
-                                            AsyncOpKernel::DoneCallback done) {
+                                            AsyncOpKernel::DoneCallback done,
+                                            string key_prefix,
+                                            bool is_var_tensor,
+                                            string var_name) {
   using namespace std::placeholders;
   return std::bind(
-      [ctx](AsyncOpKernel::DoneCallback done,
+      [ctx, key_prefix, is_var_tensor, var_name](AsyncOpKernel::DoneCallback done,
             // Begin unbound arguments.
             const Status& s, const Rendezvous::Args& send_args,
             const Rendezvous::Args& recv_args, const Tensor& val,
@@ -159,6 +196,37 @@ Rendezvous::DoneCallback make_recv_callback(OpKernelContext* ctx,
           // the same type.
           if (!is_dead) {
             ctx->set_output(0, val);
+            
+            //cache the tensor on local
+            std::vector<string> items = str_util::Split(key_prefix, ";");
+            string send_device = items[0];
+            string recv_device = items[2];
+            string send_job = str_util::Split(send_device, "/")[1];
+            string recv_job = str_util::Split(recv_device, "/")[1];
+
+            //save the tensor in resource_manager
+            //std::cout << send_job << "======>" << recv_job << std::endl;
+            if (send_job=="job:ps" && recv_job == "job:worker") {
+              if (is_var_tensor) {
+                int64 global_step = 0;
+                // Get the global_step
+                ShadowVar* var = g_shadow_manager.GetShadow("global_step");
+                if (var != nullptr){
+                  global_step = var->val().scalar<int64>()();
+                  std::cout << "RecvOp  var_name : " << var_name
+                            << ", current global_step : " << global_step
+                            << std::endl;
+                }
+                ShadowVar* shadow = new ShadowVar(global_step, var_name, val);
+
+                //std::cout << "RecvOp recv tensor:" << var_name
+                //          << ", size:" << shadow->val().TotalBytes()
+                //          << ", buf:"<< shadow->val().buf()
+                //          << std::endl;
+
+                g_shadow_manager.InsertShadow(shadow);
+              }
+            }
           }
           *ctx->is_output_dead() = is_dead;
         }
@@ -182,7 +250,10 @@ void RecvOp::ComputeAsync(OpKernelContext* ctx, DoneCallback done) {
   if (frame_iter == FrameAndIter(0, 0)) {
     VLOG(2) << "Recv " << parsed_key_.buf_;
     ctx->rendezvous()->RecvAsync(parsed_key_, args,
-                                 make_recv_callback(ctx, std::move(done)));
+                                 make_recv_callback(ctx, std::move(done),
+                                 key_prefix_,
+                                 is_var_tensor_,
+                                 var_name_));
   } else {
     Rendezvous::ParsedKey in_loop_parsed;
     GetRendezvousKey(key_prefix_, frame_iter, &in_loop_parsed.buf_);
@@ -190,7 +261,10 @@ void RecvOp::ComputeAsync(OpKernelContext* ctx, DoneCallback done) {
     OP_REQUIRES_OK_ASYNC(
         ctx, Rendezvous::ParseKey(in_loop_parsed.buf_, &in_loop_parsed), done);
     ctx->rendezvous()->RecvAsync(in_loop_parsed, args,
-                                 make_recv_callback(ctx, std::move(done)));
+                                 make_recv_callback(ctx, std::move(done),
+                                 key_prefix_,
+                                 is_var_tensor_,
+                                 var_name_));
   }
 }
 

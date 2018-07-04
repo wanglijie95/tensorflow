@@ -78,6 +78,7 @@ class Rendezvous : public core::RefCounted {
     friend class SendOp;
     friend class RecvOp;
     friend class SendReplicationOp;
+    friend class SendReplicationV2Op;
     string buf_;
   };
   static Status ParseKey(StringPiece key, ParsedKey* out);

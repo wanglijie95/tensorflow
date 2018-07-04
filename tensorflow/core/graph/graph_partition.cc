@@ -185,6 +185,30 @@ void SetSendRecvAttrs(const PartitionOptions& opts, const Edge* edge,
                     opts.get_incarnation(edge->src()->assigned_device_name())));
   builder->Attr("recv_device", edge->dst()->assigned_device_name());
   builder->Attr("client_terminated", false);
+
+  const Node* src = edge->src();
+  bool is_var_tensor = false;
+  string var_name = "NotVariable";
+  string src_type = src->type_string();
+
+  if (src_type=="VariableV2" || src_type=="Variable"){
+    is_var_tensor = true;
+    var_name = src->name();
+  }else if (src_type=="Identity" || src_type=="Assign" ||
+           src_type=="AssignAdd" || src_type=="AssignSub"){
+    if (src->num_inputs()!=0){
+      //The Variable ref is the first input in these operations.
+      Node* neighbor;
+      src->input_node(0, &neighbor);
+      if (neighbor->IsVariable()){
+        is_var_tensor = true;
+        var_name = neighbor->name();
+      }
+    }
+  }else;
+
+  builder->Attr("is_var_tensor", is_var_tensor);
+  builder->Attr("var_name", var_name);
 }
 
 NodeDef* AddSend(const PartitionOptions& opts, const GraphInfo& g_info,

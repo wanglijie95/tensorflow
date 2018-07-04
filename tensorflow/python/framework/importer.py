@@ -723,7 +723,7 @@ def import_graph_def(graph_def,
                              'TFRecordReader', 'IdentityReader',
                              'LMDBReader',
                              'RefSwitch', 'RefEnter', 'RefNextIteration',
-                             'RefMerge', 'RefIdentity']:
+                             'RefMerge', 'RefIdentity', 'RecoveryClock']:
                 pass
               elif op.type in [
                   'ConditionalAccumulator', 'SparseConditionalAccumulator',

@@ -92,6 +92,38 @@ def _make_server_def(server_or_cluster_def, job_name, task_index, protocol,
       server_def.default_session_config.MergeFrom(config)
   return server_def
 
+class ServerInfo(object):
+  """Save the information about TensorFlow server, for use in distributed training
+
+  A `ServerInfo` include:
+    ClusterDef:
+    JobName:
+    TaskIndex:
+    DefaultDevice:
+  """
+
+  def __init__(self):
+    self.cluster_spec = None
+    self.job_name = None
+    self.task_index = None
+    self.default_device = ""
+
+_server_info = ServerInfo()
+
+def get_job_name():
+  return _server_info.job_name
+
+def get_task_index():
+  return _server_info.task_index
+
+def get_default_device():
+  return _server_info.default_device
+
+def get_cluster_spec():
+  return _server_info.cluster_spec
+
+def get_num_tasks(job_name):
+  return _server_info.cluster_spec.num_tasks(job_name)
 
 @tf_export("train.Server")
 class Server(object):
@@ -140,6 +172,14 @@ class Server(object):
       tf.errors.OpError: Or one of its subclasses if an error occurs while
         creating the TensorFlow server.
     """
+    if job_name is not None and task_index is not None:
+      default_device = "job:"+job_name+"/task:"+str(task_index)
+      _server_info.default_device = default_device
+      _server_info.job_name = job_name
+      _server_info.task_index = task_index
+    if isinstance(server_or_cluster_def, ClusterSpec):
+      _server_info.cluster_spec = server_or_cluster_def
+
     self._server_def = _make_server_def(server_or_cluster_def,
                                         job_name, task_index, protocol, config)
     with errors.raise_exception_on_not_ok_status() as status:

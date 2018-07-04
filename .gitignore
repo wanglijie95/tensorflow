@@ -34,3 +34,7 @@ xcuserdata/**
 *.iml
 local.properties
 gradleBuild
+
+
+# pacemaker
+compile.bash

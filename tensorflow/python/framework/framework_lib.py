@@ -37,6 +37,8 @@
 @@convert_to_tensor
 @@convert_to_tensor_or_indexed_slices
 @@convert_to_tensor_or_sparse_tensor
+@@set_k_pacemaker
+@@k_pacemaker
 @@get_default_graph
 @@reset_default_graph
 @@import_graph_def

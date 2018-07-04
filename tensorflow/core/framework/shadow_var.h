@@ -1,7 +1,6 @@
 #ifndef TENSORFLOW_FRAMEWORK_SHADOW_VAR_H_
 #define TENSORFLOW_FRAMEWORK_SHADOW_VAR_H_
 
-#include <string>
 
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -45,7 +44,8 @@ public:
   ShadowVar* GetShadow(string name);
 
   // Get all shadows' name in this worker.
-  void GetAllShadowNames(std::vector<string>* all_shadow_names);
+  void GetAllShadowNames(std::vector<string>* all_shadow_names,
+                         std::vector<int64>* all_shadow_steps);
 
   // Get the number of shadows.
   int number_shadows();

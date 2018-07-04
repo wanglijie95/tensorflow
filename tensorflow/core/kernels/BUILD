@@ -1586,6 +1586,8 @@ cc_library(
         ":barrier_ops",
         ":conditional_accumulator_base_op",
         ":conditional_accumulator_op",
+        ":recovery_clock_op",
+        ":shadow_op",
         ":dynamic_partition_op",
         ":dynamic_stitch_op",
         ":fifo_queue_op",
@@ -1623,6 +1625,8 @@ DATA_FLOW_DEPS = [
     ":concat_lib",
     ":conditional_accumulator",
     ":conditional_accumulator_base",
+    ":recovery_clock",
+    ":replication_counter",
     ":fifo_queue",
     ":initializable_lookup_table",
     ":lookup_util",
@@ -1652,6 +1656,18 @@ tf_kernel_library(
 tf_kernel_library(
     name = "conditional_accumulator_op",
     prefix = "conditional_accumulator_op",
+    deps = DATA_FLOW_DEPS,
+)
+
+tf_kernel_library(
+    name = "recovery_clock_op",
+    prefix = "recovery_clock_op",
+    deps = DATA_FLOW_DEPS,
+)
+
+tf_kernel_library(
+    name = "shadow_op",
+    prefix = "shadow_op",
     deps = DATA_FLOW_DEPS,
 )
 
@@ -1904,6 +1920,26 @@ cc_library(
         "//tensorflow/core:framework",
         "//tensorflow/core:lib",
         "//tensorflow/core:protos_all_cc",
+    ],
+)
+
+cc_library(
+    name = "recovery_clock",
+    srcs = ["recovery_clock.cc"],
+    hdrs = ["recovery_clock.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//tensorflow/core:framework",
+    ],
+)
+
+cc_library(
+    name = "replication_counter",
+    srcs = ["replication_counter.cc"],
+    hdrs = ["replication_counter.h"],
+    visibility = ["//visibility:private"],
+    deps = [
+        "//tensorflow/core:framework",
     ],
 )
 
@@ -3819,6 +3855,7 @@ REQUIRED_DEPS = [
     "//tensorflow/core:lib",
     "//tensorflow/core:no_op_op_lib",
     "//tensorflow/core:sendrecv_ops_op_lib",
+    ":replication_counter",
 ]
 
 tf_kernel_library(

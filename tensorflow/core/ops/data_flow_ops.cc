@@ -1360,4 +1360,108 @@ REGISTER_OP("RecordInput")
     .SetIsStateful()
     .SetShapeFn(shape_inference::UnknownShape);
 
+REGISTER_OP("RecoveryClock")
+    .Output("handle: Ref(string)")
+    .Attr("total_num_replicas: int=-1")
+    .Attr("container: string = ''")
+    .Attr("shared_name: string=''")
+    .SetIsStateful()
+    .SetShapeFn(TwoElementOutput)
+    .Doc(R"doc(
+A RecoveryClock.
+
+handle: The handle to the recovery clock.
+total_num_replicas: Total number of workers(replicas).
+container: If non-empty, this accumulator is placed in the given container.
+    Otherwise, a default container is used.
+shared_name: If non-empty, this recovery clock will be shared under the given name
+    across multiple sessions.
+)doc");
+
+REGISTER_OP("GetLastestWorker")
+    .Input("handle: Ref(string)")
+    .Input("local_step: int64")
+    .Attr("replica_index: int=-1")
+    .Output("lastest_worker: int32")
+    .SetShapeFn(shape_inference::UnknownShape)
+    .Doc(R"doc(
+Get the lastest worker. Get the index of worker who has the lastest parameters.
+
+handle: The handle to a clock.
+local_step: The local_step of this replica.
+replica_index:The index of this replica.
+)doc");
+
+REGISTER_OP("GetRecoveredVars")
+    .Input("handle: Ref(string)")
+    .Input("var_names: string")
+    .Input("var_steps: int64")
+    .Attr("replica_index: int=-1")
+    .Output("recovered_vars: string")
+    .SetShapeFn(shape_inference::UnknownShape)
+    .Doc(R"doc(
+Get the variables that should be recovered by worker `replica_index`. That's mean
+worker `replica_index` has the lastest shadows of the variables.
+
+handle: The handle to a clock.
+var_names: The variables's name who has shadow in this replica.
+var_steps: The variables's steps.
+replica_index:The index of this replica.
+)doc");
+
+REGISTER_OP("GetShadow")
+    .Attr("variable_name: string")
+    .Attr("dtype: type")
+    .Attr("shape: shape")
+    .Output("output: dtype")
+    .SetShapeFn([](InferenceContext* c) {
+      PartialTensorShape shape;
+      TF_RETURN_IF_ERROR(c->GetAttr("shape", &shape));
+
+      ShapeHandle out;
+      TF_RETURN_IF_ERROR(c->MakeShapeFromPartialTensorShape(shape, &out));
+      c->set_output(0, out);
+      return Status::OK();
+    })
+    .Doc(R"doc(
+ Get the shadow of 'name'.
+ )doc");
+
+ REGISTER_OP("GetAllShadowNames")
+    .Output("shadow_names_num: int32")
+    .Output("all_shadow_names: string")
+    .Output("all_shadow_steps: int64")
+    .SetShapeFn(shape_inference::UnknownShape)
+    .Doc(R"doc(
+ Get all shadow names in this worker.
+ )doc");
+
+  REGISTER_OP("SendReplication")
+    .Input("tensor: dtype")
+    .Input("global_step: int64")
+    .Attr("tensor_name: string")
+    .Attr("recv_device: string")
+    .Attr("dtype: type")
+    .SetShapeFn(tensorflow::shape_inference::NoOutputs)
+    .Doc(R"doc(
+ Get the shadow of 'name'.
+
+ name: name of the variable.
+ )doc");
+
+   REGISTER_OP("SendReplicationV2")
+    .Input("tensor: dtype")
+    .Input("global_step: int64")
+    .Attr("tensor_name : string")
+    .Attr("k : int")
+    .Attr("worker_num: int")
+    .Attr("ps_num: int")
+    .Attr("dtype: type")
+    .SetShapeFn(tensorflow::shape_inference::NoOutputs)
+    .Doc(R"doc(
+ Get the shadow of 'name'.
+
+ name: name of the variable.
+ )doc");
+
 }  // namespace tensorflow

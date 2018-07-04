@@ -2880,6 +2880,9 @@ class Graph(object):
     self._last_loss_reduction = None
     self._container = ""
     self._registered_ops = op_def_registry.get_registered_ops()
+    # When you use k-pacemaker, you should set the parameter "k".
+    # The default value is 0.
+    self._k = 0
 
     # TODO(skyewm): fold as much of the above as possible into the C
     # implementation
@@ -3094,6 +3097,15 @@ class Graph(object):
     when using a @{tf.train.QueueRunner}.
     """
     self._finalized = True
+
+  @property
+  def k_pacemaker(self):
+    """Return the value of self._k."""
+    return self._k
+
+  def set_k_pacemaker(self, k):
+    """ Set self._k = k"""
+    self._k = k
 
   def _unsafe_unfinalize(self):
     """Opposite of `finalize`. Internal interface.
@@ -5708,6 +5720,9 @@ class GraphKeys(object):
   # Key to collect Variable objects that will be trained by the
   # optimizers.
   TRAINABLE_VARIABLES = "trainable_variables"
+  # Key to collect Variable objects that are global and will not be trained by
+  # optimizers.
+  GLOBAL_AND_UNTRAINABLE_VARIABLES = "global_and_untrainable_variables"
   # Key to collect summaries.
   SUMMARIES = "summaries"
   # Key to collect QueueRunners.
@@ -5753,6 +5768,8 @@ class GraphKeys(object):
   READY_FOR_LOCAL_INIT_OP = "ready_for_local_init_op"
   SUMMARY_OP = "summary_op"
   GLOBAL_STEP = "global_step"
+  RECOVERY_CLOCK = "recovery_clock"
+  RECOVERY_DONE_OP = "recovery_done_op"
 
   # Used to count the number of evaluations performed during a single evaluation
   # run.
@@ -5790,6 +5807,14 @@ class GraphKeys(object):
                         "after 2017-03-02.", 1)
     return cls.GLOBAL_VARIABLES
 
+
+@tf_export("set_k_pacemaker")
+def set_k_pacemaker(k):
+  get_default_graph().set_k_pacemaker(k)
+
+@tf_export("k_pacemaker")
+def k_pacemaker():
+  return get_default_graph().k_pacemaker
 
 @tf_export("add_to_collection")
 def add_to_collection(name, value):

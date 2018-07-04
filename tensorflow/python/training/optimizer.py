@@ -28,6 +28,7 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
+from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.ops import gradients
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import resource_variable_ops
@@ -37,6 +38,8 @@ from tensorflow.python.ops import variables
 from tensorflow.python.training import checkpointable
 from tensorflow.python.training import distribute as distribute_lib
 from tensorflow.python.training import slot_creator
+from tensorflow.python.training import server_lib
+from tensorflow.python.training import training_util
 from tensorflow.python.util import nest
 from tensorflow.python.util.tf_export import tf_export
 
@@ -555,6 +558,8 @@ class Optimizer(
       ValueError: If none of the variables have gradients.
       RuntimeError: If you should use `_distributed_apply()` instead.
     """
+    if ops.k_pacemaker() !=0 :
+      return self._apply_gradients_with_pacemaker(grads_and_vars, global_step, name)
     # This is a default implementation of apply_gradients() that can be shared
     # by most optimizers.  It relies on the subclass implementing the following
     # methods: _create_slots(), _prepare(), _apply_dense(), and _apply_sparse().
@@ -633,6 +638,96 @@ class Optimizer(
       if not context.executing_eagerly():
         if isinstance(apply_updates, ops.Tensor):
           apply_updates = apply_updates.op
+        train_op = ops.get_collection_ref(ops.GraphKeys.TRAIN_OP)
+        if apply_updates not in train_op:
+          train_op.append(apply_updates)
+
+      return apply_updates
+
+  def _apply_gradients_with_pacemaker(self, grads_and_vars, global_step=None, name=None):
+    # No DistributionStrategy case.
+    grads_and_vars = tuple(grads_and_vars)  # Make sure repeat iteration works.
+    if not grads_and_vars:
+      raise ValueError("No variables provided.")
+    converted_grads_and_vars = []
+    for g, v in grads_and_vars:
+      if g is not None:
+        try:
+          # Convert the grad to Tensor or IndexedSlices if necessary.
+          g = ops.convert_to_tensor_or_indexed_slices(g)
+        except TypeError:
+          raise TypeError(
+              "Gradient must be convertible to a Tensor"
+              " or IndexedSlices, or None: %s" % g)
+        if not isinstance(g, (ops.Tensor, ops.IndexedSlices)):
+          raise TypeError(
+              "Gradient must be a Tensor, IndexedSlices, or None: %s" % g)
+      p = _get_processor(v)
+      converted_grads_and_vars.append((g, v, p))
+
+    converted_grads_and_vars = tuple(converted_grads_and_vars)
+    var_list = [v for g, v, _ in converted_grads_and_vars if g is not None]
+    if not var_list:
+      raise ValueError("No gradients provided for any variable: %s." %
+                       ([str(v) for _, _, v in converted_grads_and_vars],))
+    with ops.init_scope():
+      self._create_slots(var_list)
+    
+    #Check global_step == training_util.get_global_step()
+    if (global_step is not None) and (global_step!=training_util.get_global_step()):
+      raise ValueError("Global step Error. "
+          "You should use function `tf.train.get_or_create_global_step` to create global step.")
+    # Create or Get the global_step and local_step
+    # Be careful that global_step should be colocated on PS
+    global_step = training_util.get_or_create_global_step()
+
+    update_ops = []
+    with ops.name_scope(name, self._name) as name:
+      self._prepare()
+      for grad, var, processor in converted_grads_and_vars:
+        if grad is None:
+          continue
+        # We colocate all ops created in _apply_dense or _apply_sparse
+        # on the same device as the variable.
+        # TODO(apassos): figure out how to get the variable name here.
+        if context.executing_eagerly() or isinstance(
+            var,
+            resource_variable_ops.ResourceVariable) and not var._in_graph_mode:  # pylint: disable=protected-access
+          scope_name = ""
+        else:
+          scope_name = var.op.name
+        with ops.name_scope("update_" + scope_name), ops.colocate_with(var):
+          # We add send replication operations here.
+          with ops.control_dependencies([processor.update_op(self, grad)]):
+            send_replication = data_flow_ops.send_replication_v2(var, global_step, 
+                          var.op.name, ops.k_pacemaker(), server_lib.get_num_tasks("worker"),
+                          server_lib.get_num_tasks("ps"))
+            update_ops.append(send_replication)
+      
+      # Send replications for the global but not trainable variables.
+      untrained_ops = []
+      untrained_vars = ops.get_collection(ops.GraphKeys.GLOBAL_AND_UNTRAINABLE_VARIABLES)
+      for var in untrained_vars:
+        with ops.name_scope("untrained_" + var.op.name), ops.colocate_with(var):
+          send_replication = data_flow_ops.send_replication_v2(var, global_step, 
+                            var.op.name, ops.k_pacemaker(), server_lib.get_num_tasks("worker"),
+                            server_lib.get_num_tasks("ps"))
+          untrained_ops.append(send_replication)
+
+      with ops.control_dependencies([self._finish(update_ops, "update"), 
+                                     self._finish(untrained_ops, "untrained")]):
+        with ops.colocate_with(global_step):
+          if isinstance(global_step, resource_variable_ops.ResourceVariable):
+            # TODO(apassos): the implicit read in assign_add is slow; consider
+            # making it less so.
+            apply_updates = resource_variable_ops.assign_add_variable_op(
+                global_step.handle,
+                ops.convert_to_tensor(1, dtype=global_step.dtype),
+                name=name)
+          else:
+            apply_updates = state_ops.assign_add(global_step, 1, name=name)
+
+      if not context.executing_eagerly():
         train_op = ops.get_collection_ref(ops.GraphKeys.TRAIN_OP)
         if apply_updates not in train_op:
           train_op.append(apply_updates)

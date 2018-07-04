@@ -105,6 +105,7 @@ PaddingFIFOQueue
 PaddingFIFOQueueV2
 PriorityQueue
 PriorityQueueV2
+RecoveryClock
 QueueClose
 QueueCloseV2
 QueueDequeue

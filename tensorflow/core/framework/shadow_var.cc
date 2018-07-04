@@ -57,10 +57,12 @@ ShadowVar* ShadowManager::GetShadow(string name){
 }
 
 // Get all shadows in this worker.
-void ShadowManager::GetAllShadowNames(std::vector<string>* all_shadow_names){
+void ShadowManager::GetAllShadowNames(std::vector<string>* all_shadow_names,
+                                      std::vector<int64>* all_shadow_steps){
   mutex_lock l(mu_);
   for(auto iter=shadows_.begin(); iter!=shadows_.end(); ++iter){
-    all_shadow_names->emplace_back(iter->first);
+    all_shadow_names->emplace_back(iter->second->name());
+    all_shadow_steps->emplace_back(iter->second->global_step());
   }
 }
 

@@ -30,6 +30,8 @@ class SendOp : public OpKernel {
   string key_prefix_;
   Rendezvous::ParsedKey parsed_key_;
   bool hostmem_sendrecv_;
+  bool is_var_tensor_;
+  string var_name_;
 
   TF_DISALLOW_COPY_AND_ASSIGN(SendOp);
 };
@@ -43,6 +45,8 @@ class RecvOp : public AsyncOpKernel {
   string key_prefix_;
   Rendezvous::ParsedKey parsed_key_;
   bool hostmem_sendrecv_;
+  bool is_var_tensor_;
+  string var_name_;
 
   TF_DISALLOW_COPY_AND_ASSIGN(RecvOp);
 };
