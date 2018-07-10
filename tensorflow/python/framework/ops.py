@@ -67,6 +67,7 @@ from tensorflow.python.util.tf_export import tf_export
 _USE_C_API = os.getenv("TF_C_API_GRAPH_CONSTRUCTION", "1") is not "0"
 _USE_C_SHAPES = os.getenv("TF_C_API_GRAPH_CONSTRUCTION_SHAPES", "0") is not "0"
 
+os.environ["TF_K_PACEMAKER"] = "-1"
 
 def tensor_id(tensor):
   """Returns a unique identifier for this Tensor."""
@@ -2880,9 +2881,6 @@ class Graph(object):
     self._last_loss_reduction = None
     self._container = ""
     self._registered_ops = op_def_registry.get_registered_ops()
-    # When you use k-pacemaker, you should set the parameter "k".
-    # The default value is 0.
-    self._k = 0
 
     # TODO(skyewm): fold as much of the above as possible into the C
     # implementation
@@ -3100,12 +3098,16 @@ class Graph(object):
 
   @property
   def k_pacemaker(self):
-    """Return the value of self._k."""
-    return self._k
+    """Return the value of k_pacemaker envrionment variable"""
+    return int(os.environ["TF_K_PACEMAKER"])
 
   def set_k_pacemaker(self, k):
-    """ Set self._k = k"""
-    self._k = k
+    """ Set k_pacemaker envrionment variable"""
+    if k < 0:
+      raise ValueError("The value of k_pacemaker must >= 0")
+    if int(os.environ["TF_K_PACEMAKER"]) >= 0:
+      raise ValueError("You can't set k_pacemaker twice time.")
+    os.environ["TF_K_PACEMAKER"] = str(k)
 
   def _unsafe_unfinalize(self):
     """Opposite of `finalize`. Internal interface.

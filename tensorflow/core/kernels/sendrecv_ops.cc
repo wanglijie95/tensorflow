@@ -15,6 +15,7 @@ limitations under the License.
 
 #include <iostream>
 #include <vector>
+#include <cstdlib>
 
 #include "tensorflow/core/kernels/sendrecv_ops.h"
 
@@ -27,6 +28,28 @@ limitations under the License.
 #include "tensorflow/core/kernels/replication_counter.h"
 
 namespace tensorflow {
+
+
+// Parse int value from environment variable (char*)
+int EnvStrToInt(const char* env_var_val) {
+  if (env_var_val == nullptr) {
+    return 0;
+  }
+
+  string env_var_str(env_var_val);
+  std::istringstream ss(env_var_str);
+  int temp;
+  if (!(ss >> temp)) {
+    // Invalid setting, set temp to default (0)
+    temp = 0;
+  }
+  return temp;
+}
+
+int KPacemakerFromEnv() {
+  const char* k_pacemaker = getenv("TF_K_PACEMAKER");
+  return EnvStrToInt(k_pacemaker);
+}
 
 static string GetRendezvousKeyPrefix(const string& send_device,
                                      const string& recv_device,
@@ -95,7 +118,8 @@ void SendOp::Compute(OpKernelContext* ctx) {
   args.alloc_attrs = ctx->input_alloc_attr(0);
   
   // Record the pull worker for variable.
-  if (is_var_tensor_){
+  // Check is_var_tensor and check "k_pacemaker" value.
+  if (is_var_tensor_ && (KPacemakerFromEnv() >= 0)){
     // Parse the key_prefix
     std::vector<string> items = str_util::Split(key_prefix_, ";");
     string send_device = items[0];
@@ -196,18 +220,18 @@ Rendezvous::DoneCallback make_recv_callback(OpKernelContext* ctx,
           // the same type.
           if (!is_dead) {
             ctx->set_output(0, val);
-            
-            //cache the tensor on local
-            std::vector<string> items = str_util::Split(key_prefix, ";");
-            string send_device = items[0];
-            string recv_device = items[2];
-            string send_job = str_util::Split(send_device, "/")[1];
-            string recv_job = str_util::Split(recv_device, "/")[1];
+            // Check the k_pacemaker value.
+            if (is_var_tensor && (KPacemakerFromEnv() >= 0)){
+              //cache the tensor on local
+              std::vector<string> items = str_util::Split(key_prefix, ";");
+              string send_device = items[0];
+              string recv_device = items[2];
+              string send_job = str_util::Split(send_device, "/")[1];
+              string recv_job = str_util::Split(recv_device, "/")[1];
 
-            //save the tensor in resource_manager
-            //std::cout << send_job << "======>" << recv_job << std::endl;
-            if (send_job=="job:ps" && recv_job == "job:worker") {
-              if (is_var_tensor) {
+              //save the tensor in resource_manager
+              //std::cout << send_job << "======>" << recv_job << std::endl;
+              if (send_job=="job:ps" && recv_job == "job:worker") {
                 int64 global_step = 0;
                 // Get the global_step
                 ShadowVar* var = g_shadow_manager.GetShadow("global_step");

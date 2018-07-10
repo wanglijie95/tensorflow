@@ -214,7 +214,7 @@ class Scaffold(object):
       self._summary_op = Scaffold.get_or_default('summary_op',
                                                  ops.GraphKeys.SUMMARY_OP,
                                                  summary.merge_all)
-    if ops.k_pacemaker() != 0:
+    if ops.k_pacemaker() >= 0:
       # Set ps state
       if not self._ps_state_op:
         for i in range(server_lib.get_num_tasks("ps")):
@@ -1128,7 +1128,7 @@ class _RecoverableSession(_WrappedSession):
     while True:
       try:
         if not self._sess:
-          if ops.k_pacemaker() != 0:
+          if ops.k_pacemaker() >= 0:
             self._sess = self._sess_creator.server_restart_session()
           else :
             self._sess = self._create_session()

@@ -237,7 +237,7 @@ class Variable(checkpointable.CheckpointableBase):
           constraint=constraint)
     
     
-    if ops.k_pacemaker() != 0:
+    if ops.k_pacemaker() >= 0:
       self._shadow = {}
       self._recover_ops = {}
       # Parse the variable device.

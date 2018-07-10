@@ -558,7 +558,7 @@ class Optimizer(
       ValueError: If none of the variables have gradients.
       RuntimeError: If you should use `_distributed_apply()` instead.
     """
-    if ops.k_pacemaker() !=0 :
+    if ops.k_pacemaker() >= 0 :
       return self._apply_gradients_with_pacemaker(grads_and_vars, global_step, name)
     # This is a default implementation of apply_gradients() that can be shared
     # by most optimizers.  It relies on the subclass implementing the following
