@@ -237,9 +237,9 @@ Rendezvous::DoneCallback make_recv_callback(OpKernelContext* ctx,
                 ShadowVar* var = g_shadow_manager.GetShadow("global_step");
                 if (var != nullptr){
                   global_step = var->val().scalar<int64>()();
-                  std::cout << "RecvOp  var_name : " << var_name
-                            << ", current global_step : " << global_step
-                            << std::endl;
+                  // std::cout << "RecvOp  var_name : " << var_name
+                  //           << ", current global_step : " << global_step
+                  //           << std::endl;
                 }
                 ShadowVar* shadow = new ShadowVar(global_step, var_name, val);
 

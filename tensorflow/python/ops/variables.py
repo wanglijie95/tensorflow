@@ -237,27 +237,27 @@ class Variable(checkpointable.CheckpointableBase):
           constraint=constraint)
     
     
+    self._shadow = {}
+    self._recover_ops = {}
+    # Parse the variable device.
+    var_job = None
+    var_task = None
+    for device_str in self.device.split("/"):
+      if not device_str:
+        continue
+      key, value = device_str.split(":")
+      if key == "job":
+        var_job = value
+      if key == "task":
+        var_task = int(value)
+    if var_job is None or var_task is None:
+      raise ValueError("You should specify the \'job\' and \'task\' of "
+                        "Variable : %s"%self.name)
+    if var_job == "ps":
+      # Add to collection for recover.
+      ops.add_to_collection("%s_%d_variables"%(var_job, var_task), self)
+    
     if ops.k_pacemaker() >= 0:
-      self._shadow = {}
-      self._recover_ops = {}
-      # Parse the variable device.
-      var_job = None
-      var_task = None
-      for device_str in self.device.split("/"):
-        if not device_str:
-          continue
-        key, value = device_str.split(":")
-        if key == "job":
-          var_job = value
-        if key == "task":
-          var_task = int(value)
-      if var_job is None or var_task is None:
-        raise ValueError("You should specify the \'job\' and \'task\' of "
-                         "Variable : %s"%self.name)
-      if var_job == "ps":
-        # Add to collection for recover.
-        ops.add_to_collection("%s_%d_variables"%(var_job, var_task), self)
-
       # Parse current device.
       current_job = None
       current_task = None

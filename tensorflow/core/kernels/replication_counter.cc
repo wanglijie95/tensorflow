@@ -38,7 +38,7 @@ ReplicationCounter* ReplicationCounterManager::GetOrCreateCounter(string var_nam
   mutex_lock l(mu_);
   ReplicationCounter* result = GetCounterUnlock(var_name);
   if (result == nullptr){
-    std::cout << "Create a new counter, name is : " << var_name << std::endl;
+    // std::cout << "Create a new counter, name is : " << var_name << std::endl;
     ReplicationCounter* counter = new ReplicationCounter(var_name);
     counters_[counter->var_name] = counter;
     return counter;

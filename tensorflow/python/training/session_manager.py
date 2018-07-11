@@ -25,6 +25,7 @@ from tensorflow.python.framework import errors
 from tensorflow.python.framework import ops
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.training import saver as saver_mod
+from tensorflow.python.training import server_lib
 from tensorflow.python.util.tf_export import tf_export
 
 
@@ -179,6 +180,17 @@ class SessionManager(object):
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
 
+    try:
+      ps_state_op = ops.get_collection("ps_state_op")[0]
+    except IndexError as e:
+      print(e)
+    else:
+      # The state(active or dead) of all ps.
+      # Only all ps recovered, this run can return.
+      ps_state = sess.run(ps_state_op)
+    
+    start = time.time()
+
     if checkpoint_dir and checkpoint_filename_with_path:
       raise ValueError("Can not provide both checkpoint_dir and "
                        "checkpoint_filename_with_path.")
@@ -189,6 +201,10 @@ class SessionManager(object):
 
     if checkpoint_filename_with_path:
       saver.restore(sess, checkpoint_filename_with_path)
+      end = time.time()
+      logging.info("*************************************")
+      logging.info("Checkpoint::Recovery, start_time : %.7f, end_time : %.7f, recover_time : %.7f"%(start, end, (end-start)))
+      logging.info("*************************************")
       return sess, True
 
     # Waits up until max_wait_secs for checkpoint to become available.
@@ -206,6 +222,11 @@ class SessionManager(object):
     # Loads the checkpoint.
     saver.restore(sess, ckpt.model_checkpoint_path)
     saver.recover_last_checkpoints(ckpt.all_model_checkpoint_paths)
+
+    end = time.time()
+    logging.info("*************************************")
+    logging.info("Checkpoint::Recovery, start_time : %.7f, end_time : %.7f, recover_time : %.7f"%(start, end, (end-start)))
+    logging.info("*************************************")
     return sess, True
 
 
@@ -223,6 +244,9 @@ class SessionManager(object):
 
     # The state(active or dead) of all ps
     ps_state = sess.run(ps_state_op)
+
+    start = time.time()
+    
     # The all ps index
     all_ps = np.arange(len(ps_state))
     # Get all survive ps index
@@ -238,27 +262,36 @@ class SessionManager(object):
     
     # Get var names should be reocvered
     recovered_var_names = [v.op.name for v in recovered_vars]
-    print("================recovered_vars is : ", recovered_var_names)
-    # Get the var should be recovered by this worker or ps
-    worker_recovered_names, ps_recovered_names = sess.run([ops.get_collection("worker_get_recovered_vars")[0], 
-                                                          ops.get_collection("ps_get_recovered_vars")[0]],
-                                                          feed_dict={ops.get_collection("recovered_vars")[0] : recovered_var_names})
     
-    print("worker_recovered_names : ", worker_recovered_names)
-    print("ps_recovered_names : ", ps_recovered_names)
-
-    # Run the real recover operation
     recover_ops = []
-    for var in recovered_vars:
-      if var.op.name.encode() in worker_recovered_names:
-        recover_ops.append(var.recover_ops["worker_recover"])  
-      if var.op.name.encode() in ps_recovered_names:
-        recover_ops.append(var.recover_ops["ps_recover"])
-    print("Before run recover_ops, number is : ", len(recover_ops))
+    if server_lib.get_task_index() < server_lib.get_num_tasks("ps"):
+      # Get the var should be recovered by this worker and corresponding ps
+      worker_recovered_names, ps_recovered_names = sess.run([ops.get_collection("worker_get_recovered_vars")[0], 
+                                                            ops.get_collection("ps_get_recovered_vars")[0]],
+                                                            feed_dict={ops.get_collection("recovered_vars")[0] : recovered_var_names})
+    
+      for var in recovered_vars:
+        if var.op.name.encode() in worker_recovered_names:
+          recover_ops.append(var.recover_ops["worker_recover"])  
+        if var.op.name.encode() in ps_recovered_names:
+          recover_ops.append(var.recover_ops["ps_recover"])
+    else:
+      # Get the var should be recovered by this worker
+      worker_recovered_names = sess.run(ops.get_collection("worker_get_recovered_vars")[0], 
+                                        feed_dict={ops.get_collection("recovered_vars")[0] : recovered_var_names})
+    
+      for var in recovered_vars:
+        if var.op.name.encode() in worker_recovered_names:
+          recover_ops.append(var.recover_ops["worker_recover"])  
+    
+    # Run the real recover operation
     sess.run(recover_ops)
-    print("After run recover_ops")
 
-    print("In server_restart_session, recover_op has done!!!")
+    end = time.time()
+
+    logging.info("*************************************")
+    logging.info("Pacemaker::Recovery, start_time : %.7f, end_time : %.7f, recover_time : %.7f"%(start, end, (end-start)))
+    logging.info("*************************************")
     # Check the recovery operations is done or not
     # If not done, wait for done
     while True:

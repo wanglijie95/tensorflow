@@ -14,8 +14,8 @@ class GetShadowOp : public OpKernel {
   }
   void Compute(OpKernelContext* ctx) override {
     ShadowVar* var = g_shadow_manager.GetShadow(name_);
-    std::cout << "var_name : " << name_ << ", g_shadow_manager size : "
-              << g_shadow_manager.number_shadows() << std::endl;
+    // std::cout << "var_name : " << name_ << ", g_shadow_manager size : "
+    //           << g_shadow_manager.number_shadows() << std::endl;
     if(var!=nullptr){
       // std::cout << "GetShadowOp get tensor:" << var->name()
       //           << ", size is "<< var->val().TotalBytes()
@@ -40,17 +40,17 @@ class GetAllShadowNamesOp : public OpKernel {
     std::vector<string> all_shadow_names;
     std::vector<int64> all_shadow_steps;
     g_shadow_manager.GetAllShadowNames(&all_shadow_names, &all_shadow_steps);
-    std::cout << "g_shadow_manager size : " << g_shadow_manager.number_shadows()
-              << ", all_shadow_names.size : " << all_shadow_names.size() << std::endl;
-    for(int i = 0; i < all_shadow_names.size(); ++i){
-      std::cout << all_shadow_names[i] << ", ";
-    }
-    std::cout << std::endl;
+    // std::cout << "g_shadow_manager size : " << g_shadow_manager.number_shadows()
+    //           << ", all_shadow_names.size : " << all_shadow_names.size() << std::endl;
+    // for(int i = 0; i < all_shadow_names.size(); ++i){
+    //   std::cout << all_shadow_names[i] << ", ";
+    // }
+    // std::cout << std::endl;
 
-    for(int i = 0; i < all_shadow_steps.size(); ++i){
-      std::cout << all_shadow_steps[i] << ", ";
-    }
-    std::cout << std::endl;
+    // for(int i = 0; i < all_shadow_steps.size(); ++i){
+    //   std::cout << all_shadow_steps[i] << ", ";
+    // }
+    // std::cout << std::endl;
     
     Tensor* output = nullptr;
     OP_REQUIRES_OK(ctx,
@@ -99,11 +99,11 @@ class GetShadowNamesOp : public OpKernel {
       }
     }
 
-    for(int i = 0; i < shadows.size(); ++i){
-      std::cout << "(" << shadows[i]->name() << ", "
-                << shadows[i]->global_step() << "), ";
-    }
-    std::cout << std::endl;
+    // for(int i = 0; i < shadows.size(); ++i){
+    //   std::cout << "(" << shadows[i]->name() << ", "
+    //             << shadows[i]->global_step() << "), ";
+    // }
+    // std::cout << std::endl;
     
     Tensor* output = nullptr;
     OP_REQUIRES_OK(ctx,
@@ -186,8 +186,8 @@ class SendReplicationOp : public AsyncOpKernel {
 
     send_device_ = context->device()->name();
     recv_device_ = GetDeviceFullName(recv_device_);
-    std::cout << "send_device is : " << send_device_
-              << "recv_device is : " << recv_device_ << std::endl;
+    // std::cout << "send_device is : " << send_device_
+    //           << "recv_device is : " << recv_device_ << std::endl;
     string key_prefix = GetRendezvousKeyPrefix(send_device_, recv_device_,
                                         11111, variable_name_);
     GetRendezvousKey(key_prefix, {0, 0}, &parsed_key_.buf_);

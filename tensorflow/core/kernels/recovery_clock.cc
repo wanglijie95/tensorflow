@@ -108,10 +108,10 @@ void RecoveryClock::TryGetRecoveredVars(int32 replica_index,
       const auto& var_names_flat = var_names.flat<string>();
       const auto& var_steps_flat = var_steps.flat<int64>();
 
-      std::cout << "replica_index is : " << replica_index << ", var_names : [" ;
-      for(int i = 0; i < var_names_num; ++i){
-        std::cout << var_names_flat(i) << ", ";
-      }
+      // std::cout << "replica_index is : " << replica_index << ", var_names : [" ;
+      // for(int i = 0; i < var_names_num; ++i){
+      //   std::cout << var_names_flat(i) << ", ";
+      // }
       
       for(int i = 0; i < var_names_num; ++i){
         string name = var_names_flat(i);
@@ -145,7 +145,7 @@ void RecoveryClock::TryGetRecoveredVars(int32 replica_index,
         // all vars that it's responsible for recovering.
         // <replica_index, (var1, var2, ...)>
         std::map<int32, std::vector<string>> worker_vars;
-        std::cout << "shadow_info_ size() : " << shadow_info_.size() << std::endl;
+        // std::cout << "shadow_info_ size() : " << shadow_info_.size() << std::endl;
         for (auto iter=shadow_info_.begin(); iter!=shadow_info_.end(); iter++){
           string var_name = iter->first;
           int32 worker_index = iter->second.replica_index;
@@ -158,13 +158,13 @@ void RecoveryClock::TryGetRecoveredVars(int32 replica_index,
           }
         }
 
-        for(auto iter=worker_vars.begin(); iter!=worker_vars.end(); iter++){
-          std::cout << "recovered replica_index : " << iter->first << ", recoverd_name: [";
-          for(auto a : iter->second){
-            std::cout << a << ", " ;
-          }
-          std::cout << "]" << std::endl;
-        }
+        // for(auto iter=worker_vars.begin(); iter!=worker_vars.end(); iter++){
+        //   std::cout << "recovered replica_index : " << iter->first << ", recoverd_name: [";
+        //   for(auto a : iter->second){
+        //     std::cout << a << ", " ;
+        //   }
+        //   std::cout << "]" << std::endl;
+        // }
 
 
 

@@ -214,13 +214,16 @@ class Scaffold(object):
       self._summary_op = Scaffold.get_or_default('summary_op',
                                                  ops.GraphKeys.SUMMARY_OP,
                                                  summary.merge_all)
-    if ops.k_pacemaker() >= 0:
-      # Set ps state
-      if not self._ps_state_op:
+    # Set ps state
+    if not self._ps_state_op:
+      # Check this is distribute training.
+      if server_lib.get_cluster_spec() is not None:
         for i in range(server_lib.get_num_tasks("ps")):
           first_var = ops.get_collection("ps_%d_variables"%i)[0]
           self._ps_state_op.append(state_ops.is_variable_initialized(first_var))
+        ops.add_to_collection("ps_state_op", self._ps_state_op)
       
+      if ops.k_pacemaker() >= 0:
         # Set RecoveryClock
         global_step = training_util.get_or_create_global_step()
         with ops.colocate_with(global_step):
