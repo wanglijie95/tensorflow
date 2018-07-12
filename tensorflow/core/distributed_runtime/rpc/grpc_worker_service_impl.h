@@ -130,7 +130,7 @@ class SerializationTraits<tensorflow::TensorRequest>
                             "TensorRequest parse error", s.ToString()));
       }
     }
-    g_core_codegen_interface->grpc_byte_buffer_destroy(buffer);
+    grpc_byte_buffer_destroy(buffer);
     return result;
   }
 };

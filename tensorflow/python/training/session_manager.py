@@ -155,7 +155,8 @@ class SessionManager(object):
                           checkpoint_filename_with_path=None,
                           wait_for_checkpoint=False,
                           max_wait_secs=7200,
-                          config=None):
+                          config=None,
+                          ps_state_op=None):
     """Creates a `Session`, and tries to restore a checkpoint.
 
 
@@ -180,13 +181,7 @@ class SessionManager(object):
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
 
-    try:
-      ps_state_op = ops.get_collection("ps_state_op")[0]
-    except IndexError as e:
-      print(e)
-    else:
-      # The state(active or dead) of all ps.
-      # Only all ps recovered, this run can return.
+    if ps_state_op is not None:
       ps_state = sess.run(ps_state_op)
     
     start = time.time()
@@ -313,7 +308,8 @@ class SessionManager(object):
                       max_wait_secs=7200,
                       config=None,
                       init_feed_dict=None,
-                      init_fn=None):
+                      init_fn=None,
+                      ps_state_op=None):
     """Creates a `Session`. Makes sure the model is ready to be used.
 
     Creates a `Session` on 'master'. If a `saver` object is passed in, and
@@ -371,7 +367,8 @@ class SessionManager(object):
         checkpoint_filename_with_path=checkpoint_filename_with_path,
         wait_for_checkpoint=wait_for_checkpoint,
         max_wait_secs=max_wait_secs,
-        config=config)
+        config=config,
+        ps_state_op=ps_state_op)
     if not is_loaded_from_checkpoint:
       if init_op is None and not init_fn and self._local_init_op is None:
         raise RuntimeError("Model is not initialized and no init_op or "

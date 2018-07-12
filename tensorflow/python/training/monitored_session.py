@@ -214,14 +214,12 @@ class Scaffold(object):
       self._summary_op = Scaffold.get_or_default('summary_op',
                                                  ops.GraphKeys.SUMMARY_OP,
                                                  summary.merge_all)
+    # Check this is distribute training.
     # Set ps state
-    if not self._ps_state_op:
-      # Check this is distribute training.
-      if server_lib.get_cluster_spec() is not None:
-        for i in range(server_lib.get_num_tasks("ps")):
-          first_var = ops.get_collection("ps_%d_variables"%i)[0]
-          self._ps_state_op.append(state_ops.is_variable_initialized(first_var))
-        ops.add_to_collection("ps_state_op", self._ps_state_op)
+    if server_lib.get_cluster_spec() and not self._ps_state_op:
+      for i in range(server_lib.get_num_tasks("ps")):
+        first_var = ops.get_collection("ps_%d_variables"%i)[0]
+        self._ps_state_op.append(state_ops.is_variable_initialized(first_var))
       
       if ops.k_pacemaker() >= 0:
         # Set RecoveryClock
@@ -532,7 +530,8 @@ class ChiefSessionCreator(SessionCreator):
         config=self._config,
         init_op=self._scaffold.init_op,
         init_feed_dict=self._scaffold.init_feed_dict,
-        init_fn=self._scaffold.init_fn)
+        init_fn=self._scaffold.init_fn,
+        ps_state_op=self._scaffold.ps_state_op)
 
   def server_restart_session(self):
     return self._get_session_manager().server_restart_session(
@@ -1145,6 +1144,7 @@ class _RecoverableSession(_WrappedSession):
                      'session will be closed and a new session will be '
                      'created. Error: %s', e)
         self.close()
+        logging.info("self.close==================================")
         self._sess = None
       # If some other error(not in _PREEMPTION_ERRORS) raised,
       # we print error message.      

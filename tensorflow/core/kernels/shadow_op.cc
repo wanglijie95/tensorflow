@@ -236,18 +236,15 @@ class SendReplicationV2Op : public AsyncOpKernel {
     // We increment global_step here.
     const int64 global_step_scalar = global_step.scalar<int64>()() + 1;
 
+    bool send_flag  = false;
+    int worker_repl_num = 0;
     ReplicationCounter* counter = g_replication_counter_manager.GetOrCreateCounter(tensor_name_);
-
-    // Increment the send counter.
-    ++(counter->send_counter);
-
-    // check the send counter.
-    if (counter->send_counter >= worker_num_){
-      // We can send replication here.
-      // Get the worker side replicatoin num
-      int worker_repl_num = 0;
-      {
-        mutex_lock l(counter->mu);
+    {
+      mutex_lock l(counter->mu);
+      // Increment the send counter.
+      ++(counter->send_counter);
+      if(counter->send_counter >= worker_num_){
+        send_flag = true;
         worker_repl_num = counter->pull_worker_set.size();
         // std::cout << "tensorflow::SET  ";
         // for (string worker_str : counter->pull_worker_set){
@@ -256,7 +253,9 @@ class SendReplicationV2Op : public AsyncOpKernel {
         // std::cout << std::endl;
         counter->ResetUnlock();
       }
-      
+    }
+
+    if (send_flag){  
       // Parse send device
       string send_device = ctx->device()->name();
       auto items = str_util::Split(send_device, "/");
@@ -301,6 +300,7 @@ class SendReplicationV2Op : public AsyncOpKernel {
       
 
       // Send replications
+      response_num_ = 0;
       for (int i = 1; i <= num_recv_devices_; ++i){
         string recv_device = DeviceNameUtils::FullName(job, 0, (task+i)%ps_num_, "cpu", 0);
         

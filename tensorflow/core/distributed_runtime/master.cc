@@ -207,7 +207,9 @@ class DeviceFinder {
   // Every `kLoggingPeriodMs`, while the DeviceFinder is still waiting
   // to hear from workers, log a list of the workers who have not
   // responded.
-  const int32 kLoggingPeriodMs = 10 * 1000;
+  const int32 kLoggingPeriodMs = 500;
+  // For less logging.
+  int counter = 0;
 
   Status Wait() {
     mutex_lock l(mu_);
@@ -217,13 +219,15 @@ class DeviceFinder {
       pending_zero_.wait_for(l, std::chrono::milliseconds(kLoggingPeriodMs));
       if (num_pending_ != 0) {
         for (size_t i = 0; i < targets_.size(); ++i) {
-          if (!seen_targets_[i]) {
+          if (!seen_targets_[i] && counter >= 30) {
+            counter = 0;
             LOG(INFO)
                 << "CreateSession still waiting for response from worker: "
                 << targets_[i];
           }
         }
       }
+      counter += 1;
     }
     return status_;
   }
