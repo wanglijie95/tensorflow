@@ -234,21 +234,20 @@ Rendezvous::DoneCallback make_recv_callback(OpKernelContext* ctx,
               if (send_job=="job:ps" && recv_job == "job:worker") {
                 int64 global_step = 0;
                 // Get the global_step
-                ShadowVar* var = g_shadow_manager.GetShadow("global_step");
-                if (var != nullptr){
-                  global_step = var->val().scalar<int64>()();
+                ShadowVar var(g_shadow_manager.GetShadow("global_step"));
+                if (!var.name().empty()){
+                  global_step = var.val().scalar<int64>()();
                   // std::cout << "RecvOp  var_name : " << var_name
                   //           << ", current global_step : " << global_step
                   //           << std::endl;
                 }
-                ShadowVar* shadow = new ShadowVar(global_step, var_name, val);
 
                 //std::cout << "RecvOp recv tensor:" << var_name
                 //          << ", size:" << shadow->val().TotalBytes()
                 //          << ", buf:"<< shadow->val().buf()
                 //          << std::endl;
 
-                g_shadow_manager.InsertShadow(shadow);
+                g_shadow_manager.InsertShadow(global_step, var_name, val);
               }
             }
           }

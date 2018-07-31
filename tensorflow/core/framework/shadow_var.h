@@ -4,6 +4,7 @@
 
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/platform/logging.h"
 
 namespace tensorflow {
 class ShadowVar{
@@ -12,16 +13,33 @@ class ShadowVar{
              : global_step_(global_step),
                name_(name), 
                tensor_(tensor) {}
-    
-    int64 global_step() {return global_step_; }   
-    string name() {return name_; }
-    const Tensor& val() {return tensor_; }
-  
+
+    /// Copy constructor.
+    ShadowVar(const ShadowVar& other)
+             : global_step_(other.global_step()),
+               name_(other.name()), 
+               tensor_(other.val()) {}
+
+    const int64 global_step() const {return global_step_; }   
+    const string name() const {return name_; }
+    const Tensor& val() const {return tensor_; }
+
+    // Update only update the global_step and tensor
+    void Update(int64 global_step, string name, const Tensor& tensor){
+      // Check name
+      CHECK_EQ(name_, name);
+      // Check shape
+      const bool same_shape = tensor_.shape().IsSameSize(tensor.shape());
+      CHECK(same_shape);
+      // Update assign
+      global_step_ = global_step;
+      tensor_ = tensor;
+    }
+
   private:
-    mutex mu_;
     int64 global_step_;
     string name_;
-    const Tensor tensor_;
+    Tensor tensor_;
 };
 
 class ShadowManager{
@@ -31,17 +49,10 @@ public:
 
   //Some functions for shadows_ (insert shadow, delete shadow, get_shadow)
   //When insert, If shadow name is same, the old shadow will be replaced.
-  void InsertShadow(ShadowVar* shadow);
   void InsertShadow(int64 global_step, string name, const Tensor& tensor);
-  void DeleteShadow(string name);
-
-  // This function is used by `InsertShadow` and `DeleteShadow`.
-  // When call this function, the lock is acquired, so we don't
-  // need to acquire the lock agagin. Otherwise it causes a deadlock.
-  ShadowVar* GetShadowUnlock(string name);
 
   // Get a shadow named `name`
-  ShadowVar* GetShadow(string name);
+  const ShadowVar GetShadow(string name);
 
   // Get all shadows' name in this worker.
   void GetAllShadowNames(std::vector<string>* all_shadow_names,
@@ -52,7 +63,7 @@ public:
 
 private:
   mutex mu_;
-  std::map<string, ShadowVar*> shadows_;
+  std::map<string, ShadowVar> shadows_;
 };
 
 // The definition of `g_shadow_manager` is in "tensorflow/core/framework/shadow_op.cc"

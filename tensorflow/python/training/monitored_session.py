@@ -1149,7 +1149,8 @@ class _RecoverableSession(_WrappedSession):
       # If some other error(not in _PREEMPTION_ERRORS) raised,
       # we print error message.      
       except Exception as e:
-        raise Exception("An undesirable error was raised. Error: %s"%e)
+        # raise Exception("An undesirable error was raised. Error: %s"%e)
+        logging.info("An undesirable error was raised. Error: %s", e)
 
   def run_step_fn(self, step_fn, raw_session, run_with_hooks):
     while True:

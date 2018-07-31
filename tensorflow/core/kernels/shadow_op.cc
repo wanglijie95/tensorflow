@@ -13,15 +13,15 @@ class GetShadowOp : public OpKernel {
     OP_REQUIRES_OK(context, context->GetAttr("variable_name", &name_));
   }
   void Compute(OpKernelContext* ctx) override {
-    ShadowVar* var = g_shadow_manager.GetShadow(name_);
+    ShadowVar var(g_shadow_manager.GetShadow(name_));
     // std::cout << "var_name : " << name_ << ", g_shadow_manager size : "
     //           << g_shadow_manager.number_shadows() << std::endl;
-    if(var!=nullptr){
+    if(!var.name().empty()){
       // std::cout << "GetShadowOp get tensor:" << var->name()
       //           << ", size is "<< var->val().TotalBytes()
       //           << ", buf:"<< var->val().buf() << std::endl;
       
-      ctx->set_output(0, var->val());
+      ctx->set_output(0, var.val());
       return ;
     }
     ctx->SetStatus(errors::NotFound("Can't find the shadow of Variable named : ", name_));
@@ -88,14 +88,14 @@ class GetShadowNamesOp : public OpKernel {
     const auto& var_list_flat = var_list.flat<string>();
     const int var_list_length = static_cast<int>(var_list.NumElements());
 
-    std::vector<ShadowVar*> shadows;
+    std::vector<ShadowVar> shadows;
     // Get shadow names and step in var list.
     for (int i = 0; i < var_list_length; ++i){
       string var_name = var_list_flat(i);
-      ShadowVar* var = g_shadow_manager.GetShadow(var_name);
+      ShadowVar var(g_shadow_manager.GetShadow(var_name));
       // The var name exist in shadow manager.
-      if (var != nullptr){
-        shadows.push_back(var);
+      if (!var.name().empty()){
+        shadows.push_back(std::move(var));
       }
     }
 
@@ -120,9 +120,8 @@ class GetShadowNamesOp : public OpKernel {
     auto var_names = output_names->tensor<string, 1>();
     auto var_steps = output_steps->tensor<int64, 1>();
     for(int i = 0; i < shadows.size(); ++i){
-      ShadowVar* var = shadows[i];
-      var_names(i) = var->name();
-      var_steps(i) = var->global_step();
+      var_names(i) = shadows[i].name();
+      var_steps(i) = shadows[i].global_step();
     }
 
   }

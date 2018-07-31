@@ -42,27 +42,14 @@ class ReplicationCounterManager{
  public:
   ReplicationCounterManager() {}
 
-  //Some functions for counters_ (insert counter, delete counter, get counter)
-  //When insert, If counter name is existed, do nothing.
-  void InsertCounter(ReplicationCounter* counter);
-  void InsertCounter(string var_name);
-  void DeleteCounter(string var_name);
   ReplicationCounter* GetOrCreateCounter(string var_name);
-
-  // This function is used by `InsertCounter` and `DeleteCounter`.
-  // When call this function, the lock is acquired, so we don't
-  // need to acquire the lock agagin. Otherwise it causes a deadlock.
-  ReplicationCounter* GetCounterUnlock(string var_name);
-
-  // Get counter of "var_name"
-  ReplicationCounter* GetCounter(string var_name);
 
   // Get the number of counters.
   int number_counters();
 
  private:
   mutex mu_;
-  std::map<string, ReplicationCounter*> counters_;
+  std::map<string, ReplicationCounter> counters_;
 };
 
 extern ReplicationCounterManager g_replication_counter_manager;

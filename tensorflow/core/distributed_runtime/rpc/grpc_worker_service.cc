@@ -400,11 +400,10 @@ Status GrpcWorker::GrpcSendReplication(const TensorRequest* request,
 
   // std::cout << "Recv an replication, name : " << request->metadata().tensor_name()
   //           <<  ", global_step : " << request->metadata().global_step() << std::endl;
-  ShadowVar *shadow = new ShadowVar(request->metadata().global_step(),
-                                    request->metadata().tensor_name(),
-                                    request->tensor());
 
-  g_shadow_manager.InsertShadow(shadow);
+  g_shadow_manager.InsertShadow(request->metadata().global_step(),
+                                request->metadata().tensor_name(),
+                                request->tensor());
   return Status::OK();
 }
 

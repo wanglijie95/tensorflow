@@ -214,14 +214,16 @@ class SessionManager(object):
       else:
         return sess, False
 
+    temp = time.time()
     # Loads the checkpoint.
     saver.restore(sess, ckpt.model_checkpoint_path)
     saver.recover_last_checkpoints(ckpt.all_model_checkpoint_paths)
 
     end = time.time()
-    logging.info("*************************************")
-    logging.info("Checkpoint::Recovery, start_time : %.7f, end_time : %.7f, recover_time : %.7f"%(start, end, (end-start)))
-    logging.info("*************************************")
+    logging.info("*********************************************************************************************************************************")
+    logging.info("Checkpoint::Recovery, start_time: %.7f , end_time: %.7f , all_recover_time: %.7f , prepare_recover_time: %.7f , exec_recover_time: %.7f"%(start,end,end-start,
+                                                                                                                                                            temp-start, end-temp))
+    logging.info("*********************************************************************************************************************************")
     return sess, True
 
 
@@ -279,14 +281,16 @@ class SessionManager(object):
         if var.op.name.encode() in worker_recovered_names:
           recover_ops.append(var.recover_ops["worker_recover"])  
     
+    temp = time.time()
     # Run the real recover operation
     sess.run(recover_ops)
 
     end = time.time()
 
-    logging.info("*************************************")
-    logging.info("Pacemaker::Recovery, start_time : %.7f, end_time : %.7f, recover_time : %.7f"%(start, end, (end-start)))
-    logging.info("*************************************")
+    logging.info("*********************************************************************************************************************************")
+    logging.info("Pacemaker::Recovery, start_time: %.7f , end_time: %.7f , all_recover_time : %.7f , prepare_recover_time: %.7f , exec_recover_time: %.7f"%(start,end,end-start,
+                                                                                                                                                            temp-start,end-temp))
+    logging.info("*********************************************************************************************************************************")
     # Check the recovery operations is done or not
     # If not done, wait for done
     while True:
