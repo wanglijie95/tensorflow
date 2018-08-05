@@ -6,6 +6,9 @@ namespace tensorflow {
 
 void ShadowManager::InsertShadow(int64 global_step, string name, const Tensor& tensor){
   mutex_lock l(mu_);
+  if (name == "global_step"){
+    global_step_ = tensor.scalar<int64>()();
+  }
   // Find shadow according name
   auto iter = shadows_.find(name);
   if (iter == shadows_.end()){
@@ -42,6 +45,10 @@ void ShadowManager::GetAllShadowNames(std::vector<string>* all_shadow_names,
 int ShadowManager::number_shadows(){
   mutex_lock l(mu_);
   return shadows_.size();
+}
+
+int64 ShadowManager::global_step(){
+  return global_step_;
 }
 
 // The global shadow manager.

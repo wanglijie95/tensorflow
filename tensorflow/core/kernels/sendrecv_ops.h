@@ -18,6 +18,7 @@ limitations under the License.
 
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/platform/macros.h"
+#include "tensorflow/core/kernels/replication_counter.h"
 
 namespace tensorflow {
 
@@ -32,6 +33,9 @@ class SendOp : public OpKernel {
   bool hostmem_sendrecv_;
   bool is_var_tensor_;
   string var_name_;
+  string recv_worker_;
+  ReplicationCounter* counter_=nullptr;
+  bool record_flag_=false;
 
   TF_DISALLOW_COPY_AND_ASSIGN(SendOp);
 };
@@ -47,6 +51,7 @@ class RecvOp : public AsyncOpKernel {
   bool hostmem_sendrecv_;
   bool is_var_tensor_;
   string var_name_;
+  bool record_flag_=false;
 
   TF_DISALLOW_COPY_AND_ASSIGN(RecvOp);
 };

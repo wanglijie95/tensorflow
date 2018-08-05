@@ -61,9 +61,13 @@ public:
   // Get the number of shadows.
   int number_shadows();
 
+  // Get the global step;
+  int64 global_step();
+
 private:
   mutex mu_;
   std::map<string, ShadowVar> shadows_;
+  int64 global_step_ = 0;
 };
 
 // The definition of `g_shadow_manager` is in "tensorflow/core/framework/shadow_op.cc"
