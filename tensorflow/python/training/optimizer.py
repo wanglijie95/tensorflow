@@ -771,14 +771,6 @@ class Optimizer(
                        ([str(v) for _, _, v in converted_grads_and_vars],))
     with ops.init_scope():
       self._create_slots(var_list)
-    
-    #Check global_step == training_util.get_global_step()
-    if (global_step is not None) and (global_step!=training_util.get_global_step()):
-      raise ValueError("Global step Error. "
-          "You should use function `tf.train.get_or_create_global_step` to create global step.")
-    # Create or Get the global_step and local_step
-    # Be careful that global_step should be colocated on PS
-    global_step = training_util.get_or_create_global_step()
 
     update_ops = []
     with ops.name_scope(name, self._name) as name:
