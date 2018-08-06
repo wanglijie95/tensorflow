@@ -559,9 +559,11 @@ class Optimizer(
       RuntimeError: If you should use `_distributed_apply()` instead.
     """
     if ops.k_pacemaker() > 0 :
-      return self._apply_gradients_with_k_pacemaker(grads_and_vars, global_step, name)
+      return self.apply_gradients_with_k_pacemaker(grads_and_vars=grads_and_vars,
+                                                    global_step=global_step,
+                                                    name=name)
     elif ops.k_pacemaker() == 0 :
-      return self._apply_gradients_with_pacemaker(grads_and_vars, global_step, name)
+      return self.apply_gradients_with_pacemaker(grads_and_vars, global_step, name)
     else :
       pass
     # This is a default implementation of apply_gradients() that can be shared
@@ -648,7 +650,7 @@ class Optimizer(
 
       return apply_updates
 
-  def _apply_gradients_with_pacemaker(self, grads_and_vars, global_step=None, name=None):
+  def apply_gradients_with_pacemaker(self, grads_and_vars, global_step=None, name=None):
     # No DistributionStrategy case.
     grads_and_vars = tuple(grads_and_vars)  # Make sure repeat iteration works.
     if not grads_and_vars:
@@ -722,7 +724,26 @@ class Optimizer(
 
       return apply_updates
 
-  def _apply_gradients_with_k_pacemaker(self, grads_and_vars, global_step=None, name=None):
+  def apply_gradients_with_k_pacemaker(self,
+                                        grads_and_vars,
+                                        k_pacemaker=None,
+                                        send_replication_steps=None,
+                                        global_step=None,
+                                        name=None):
+    
+    if k_pacemaker is None:
+      k_pacemaker = ops.k_pacemaker()
+    if send_replication_steps is None:
+      send_replication_steps = server_lib.get_num_tasks("worker")
+    
+    #Check global_step == training_util.get_global_step()
+    if (global_step is not None) and (global_step!=training_util.get_global_step()):
+      raise ValueError("Global step Error. "
+          "You should use function `tf.train.get_or_create_global_step` to create global step.")
+    # Create or Get the global_step and local_step
+    # Be careful that global_step should be colocated on PS
+    global_step = training_util.get_or_create_global_step()
+    
     # No DistributionStrategy case.
     grads_and_vars = tuple(grads_and_vars)  # Make sure repeat iteration works.
     if not grads_and_vars:
@@ -778,7 +799,7 @@ class Optimizer(
           # We add send replication operations here.
           with ops.control_dependencies([processor.update_op(self, grad)]):
             send_replication = data_flow_ops.send_replication_v2(var, global_step, 
-                          var.op.name, ops.k_pacemaker(), server_lib.get_num_tasks("worker"),
+                          var.op.name, k_pacemaker, send_replication_steps,
                           server_lib.get_num_tasks("ps"))
             update_ops.append(send_replication)
       
@@ -788,7 +809,7 @@ class Optimizer(
       for var in untrained_vars:
         with ops.name_scope("untrained_" + var.op.name), ops.colocate_with(var):
           send_replication = data_flow_ops.send_replication_v2(var, global_step, 
-                            var.op.name, ops.k_pacemaker(), server_lib.get_num_tasks("worker"),
+                            var.op.name, k_pacemaker, send_replication_steps,
                             server_lib.get_num_tasks("ps"))
           untrained_ops.append(send_replication)
 

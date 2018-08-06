@@ -291,8 +291,15 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
 
       # sync_op will be assigned to the same device as the global step.
       with ops.device(global_step.device), ops.name_scope(""):
-        update_op = self._opt.apply_gradients(aggregated_grads_and_vars,
-                                              global_step)
+        k_pacemaker = ops.k_pacemaker()
+        if k_pacemaker > 0:
+          update_op = self._opt.apply_gradients_with_k_pacemaker(grads_and_vars=aggregated_grads_and_vars,
+                                                                 k_pacemaker=k_pacemaker,
+                                                                 send_replication_steps=1,
+                                                                 global_step=global_step)
+        else :
+          update_op = self._opt.apply_gradients(aggregated_grads_and_vars,
+                                                global_step)
 
       # Create token queue.
       with ops.device(global_step.device), ops.name_scope(""):
