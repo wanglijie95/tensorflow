@@ -25,6 +25,7 @@ from tensorflow.python.framework import errors
 from tensorflow.python.util import compat
 from tensorflow.python.util.tf_export import tf_export
 
+import socket
 
 def _make_server_def(server_or_cluster_def, job_name, task_index, protocol,
                      config):
@@ -124,6 +125,16 @@ def get_cluster_spec():
 
 def get_num_tasks(job_name):
   return _server_info.cluster_spec.num_tasks(job_name)
+
+@tf_export("train.PSRecover")
+def PSRecover(worker_list):
+  for worker in worker_list:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
+    host, port = worker.split(":")
+    s.connect((host, int(port)+1))
+    msg = "PSRecover"
+    s.send(msg.encode("utf-8"))
+    s.close()
 
 @tf_export("train.Server")
 class Server(object):

@@ -173,6 +173,10 @@ tf_module {
     mtype: "<type \'type\'>"
   }
   member {
+    name: "PSRecover"
+    mtype: "<type \'type\'>"
+  }
+  member {
     name: "ServerDef"
     mtype: "<class \'google.protobuf.pyext.cpp_message.GeneratedProtocolMessageType\'>"
   }

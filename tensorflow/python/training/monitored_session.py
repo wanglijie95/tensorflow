@@ -24,6 +24,10 @@ import sys
 
 import six
 
+import socket
+import threading
+import time
+
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.python.estimator import util
 from tensorflow.python.framework import errors
@@ -1095,6 +1099,44 @@ class _RecoverableSession(_WrappedSession):
     self._sess_creator = sess_creator
     _WrappedSession.__init__(self, self._create_session())
 
+    self._socket_thread = None
+    if server_lib.get_cluster_spec():
+      def RecvMsg():
+        cluster = server_lib.get_cluster_spec()
+        worker = cluster.job_tasks(server_lib.get_job_name())[server_lib.get_task_index()]
+        host, port = worker.split(":")
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        logging.info("Binding Host is %s, Port is %g"%(host, int(port)+1))
+        s.bind((host, int(port)+1))
+        s.listen(8)
+
+        while True:
+          c, addr = s.accept()
+          logging.info("Accepting connect addr : %s"%str(addr))
+          msg = c.recv(1024).decode("utf-8")
+          logging.info("Recving msg is %s"%msg)
+          c.close()
+          if msg == "PSRecover":
+            self._sess = None
+            if ops.k_pacemaker() >= 0:
+              start = time.time()
+              self._sess = self._sess_creator.server_restart_session()
+              end = time.time()
+              logging.info("K-Pacemaker all recover time is : %.7f"%(end-start))
+            else :
+              start = time.time()
+              self._sess = self._create_session()
+              end = time.time()
+              logging.info("Checkpoint or Standard all recover time is : %.7f"%(end-start))
+          elif msg == "SocketClose":
+            break
+          else:
+            pass
+        s.close()
+
+      self._socket_thread = threading.Thread(target=RecvMsg)
+      self._socket_thread.start()
+
   def _create_session(self):
     while True:
       try:
@@ -1129,23 +1171,24 @@ class _RecoverableSession(_WrappedSession):
   def run(self, fetches, feed_dict=None, options=None, run_metadata=None):
     while True:
       try:
-        if not self._sess:
-          if ops.k_pacemaker() >= 0:
-            self._sess = self._sess_creator.server_restart_session()
-          else :
-            self._sess = self._create_session()
-        return self._sess.run(fetches,
-                              feed_dict=feed_dict,
-                              options=options,
-                              run_metadata=run_metadata)
+        sess = self._sess
+        return sess.run(fetches,
+                        feed_dict=feed_dict,
+                        options=options,
+                        run_metadata=run_metadata)
       except _PREEMPTION_ERRORS as e:
         logging.info('An error was raised. This may be due to a preemption in '
                      'a connected worker or parameter server. The current '
                      'session will be closed and a new session will be '
                      'created. Error: %s', e)
-        self.close()
-        logging.info("self.close==================================")
-        self._sess = None
+        sess.close()
+        count = 0
+        while self._sess is None or self._sess == sess:
+          time.sleep(1)
+          count += 1
+          if count >= 10:
+            logging.info("Still waiting for recover done!!!")
+            count = 0
       # If some other error(not in _PREEMPTION_ERRORS) raised,
       # we print error message.      
       except Exception as e:
@@ -1167,6 +1210,19 @@ class _RecoverableSession(_WrappedSession):
                      'created. Error: %s', e)
         self.close()
         self._sess = None
+  
+  def close(self):
+    _WrappedSession.close(self)
+    if self._socket_thread and self._socket_thread.isAlive():
+      cluster = server_lib.get_cluster_spec()
+      worker = cluster.job_tasks(server_lib.get_job_name())[server_lib.get_task_index()]
+      host, port = worker.split(":")
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM) 
+      logging.info("Connect Host is %s, Port is %g"%(host, int(port)+1))
+      s.connect((host, int(port)+1))
+      msg = "SocketClose"
+      s.send(msg.encode('utf-8'))
+      s.close()
 
 
 class _CoordinatedSession(_WrappedSession):

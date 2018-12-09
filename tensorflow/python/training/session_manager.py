@@ -178,14 +178,14 @@ class SessionManager(object):
       ValueError: If both checkpoint_dir and checkpoint_filename_with_path are
         set.
     """
+    
+    start = time.time()
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
 
-    if ps_state_op is not None:
-      ps_state = sess.run(ps_state_op)
+    # if ps_state_op is not None:
+    #   ps_state = sess.run(ps_state_op)
     
-    start = time.time()
-
     if checkpoint_dir and checkpoint_filename_with_path:
       raise ValueError("Can not provide both checkpoint_dir and "
                        "checkpoint_filename_with_path.")
@@ -195,11 +195,13 @@ class SessionManager(object):
       return sess, False
 
     if checkpoint_filename_with_path:
+      temp = time.time()
       saver.restore(sess, checkpoint_filename_with_path)
       end = time.time()
-      logging.info("*************************************")
-      logging.info("Checkpoint::Recovery, start_time : %.7f, end_time : %.7f, recover_time : %.7f"%(start, end, (end-start)))
-      logging.info("*************************************")
+      logging.info("*********************************************************************************************************************************")
+      logging.info("Checkpoint::Recovery, start_time: %.7f , end_time: %.7f , all_recover_time: %.7f , prepare_recover_time: %.7f , exec_recover_time: %.7f"%(start,end,end-start,
+                                                                                                                                                            temp-start, end-temp))
+      logging.info("*********************************************************************************************************************************")
       return sess, True
 
     # Waits up until max_wait_secs for checkpoint to become available.
@@ -236,14 +238,13 @@ class SessionManager(object):
     recovery operations, other workers wait until the recovery_ops done.
     """
     logging.info("Call function server_restart_session.====================")
-    self._target = master
-    sess = session.Session(self._target, graph=self._graph, config=config)
-
-    # The state(active or dead) of all ps
-    ps_state = sess.run(ps_state_op)
 
     start = time.time()
+    self._target = master
+    sess = session.Session(self._target, graph=self._graph, config=config)
     
+    # The state(active or dead) of all ps
+    ps_state = sess.run(ps_state_op)
     # The all ps index
     all_ps = np.arange(len(ps_state))
     # Get all survive ps index
@@ -254,7 +255,7 @@ class SessionManager(object):
     # Get all var should be recovered
     recovered_vars = []
     for idx in recover_ps:
-      var_list = ops.get_collection("ps_%d_variables"%idx)
+      var_list = self._graph.get_collection("ps_%d_variables"%idx)
       recovered_vars += var_list
     
     # Get var names should be reocvered
@@ -263,10 +264,11 @@ class SessionManager(object):
     recover_ops = []
     if server_lib.get_task_index() < server_lib.get_num_tasks("ps"):
       # Get the var should be recovered by this worker and corresponding ps
-      worker_recovered_names, ps_recovered_names = sess.run([ops.get_collection("worker_get_recovered_vars")[0], 
-                                                            ops.get_collection("ps_get_recovered_vars")[0]],
-                                                            feed_dict={ops.get_collection("recovered_vars")[0] : recovered_var_names})
-    
+      worker_recovered_names, ps_recovered_names = sess.run([self._graph.get_collection("worker_get_recovered_vars")[0], 
+                                                            self._graph.get_collection("ps_get_recovered_vars")[0]],
+                                                            feed_dict={self._graph.get_collection("recovered_vars")[0] : recovered_var_names})
+
+
       for var in recovered_vars:
         if var.op.name.encode() in worker_recovered_names:
           recover_ops.append(var.recover_ops["worker_recover"])  
@@ -274,8 +276,8 @@ class SessionManager(object):
           recover_ops.append(var.recover_ops["ps_recover"])
     else:
       # Get the var should be recovered by this worker
-      worker_recovered_names = sess.run(ops.get_collection("worker_get_recovered_vars")[0], 
-                                        feed_dict={ops.get_collection("recovered_vars")[0] : recovered_var_names})
+      worker_recovered_names = sess.run(self._graph.get_collection("worker_get_recovered_vars")[0], 
+                                        feed_dict={self._graph.get_collection("recovered_vars")[0] : recovered_var_names})
     
       for var in recovered_vars:
         if var.op.name.encode() in worker_recovered_names:
@@ -363,7 +365,7 @@ class SessionManager(object):
       ValueError: If both checkpoint_dir and checkpoint_filename_with_path are
         set.
     """
-
+    
     sess, is_loaded_from_checkpoint = self._restore_checkpoint(
         master,
         saver,

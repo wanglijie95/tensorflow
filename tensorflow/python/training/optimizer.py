@@ -650,7 +650,18 @@ class Optimizer(
 
       return apply_updates
 
-  def apply_gradients_with_pacemaker(self, grads_and_vars, global_step=None, name=None):
+  def apply_gradients_with_pacemaker(self, grads_and_vars, global_step, name=None):
+    # When you want to use pacemaker, you must specify the global step(not None).
+    if global_step is None:
+      raise ValueError("Global step Error."
+          "When you want to use k-pacemaker, you must specify the global step(not None).")
+    #Check global_step == training_util.get_global_step()
+    elif global_step != training_util.get_global_step():
+      raise ValueError("Global step Error. "
+          "You should use function `tf.train.get_or_create_global_step` to create global step.")
+    else:
+      pass
+
     # No DistributionStrategy case.
     grads_and_vars = tuple(grads_and_vars)  # Make sure repeat iteration works.
     if not grads_and_vars:
@@ -678,14 +689,6 @@ class Optimizer(
                        ([str(v) for _, _, v in converted_grads_and_vars],))
     with ops.init_scope():
       self._create_slots(var_list)
-    
-    #Check global_step == training_util.get_global_step()
-    if (global_step is not None) and (global_step!=training_util.get_global_step()):
-      raise ValueError("Global step Error. "
-          "You should use function `tf.train.get_or_create_global_step` to create global step.")
-    # Create or Get the global_step and local_step
-    # Be careful that global_step should be colocated on PS
-    global_step = training_util.get_or_create_global_step()
 
     update_ops = []
     with ops.name_scope(name, self._name) as name:
@@ -726,9 +729,9 @@ class Optimizer(
 
   def apply_gradients_with_k_pacemaker(self,
                                         grads_and_vars,
+                                        global_step,
                                         k_pacemaker=None,
                                         send_replication_steps=None,
-                                        global_step=None,
                                         name=None):
     
     if k_pacemaker is None:
@@ -736,13 +739,16 @@ class Optimizer(
     if send_replication_steps is None:
       send_replication_steps = server_lib.get_num_tasks("worker")
     
+    # When you want to use k-pacemaker, you must specify the global step(not None).
+    if global_step is None:
+      raise ValueError("Global step Error."
+          "When you want to use k-pacemaker, you must specify the global step(not None).")
     #Check global_step == training_util.get_global_step()
-    if (global_step is not None) and (global_step!=training_util.get_global_step()):
+    elif global_step != training_util.get_global_step():
       raise ValueError("Global step Error. "
           "You should use function `tf.train.get_or_create_global_step` to create global step.")
-    # Create or Get the global_step and local_step
-    # Be careful that global_step should be colocated on PS
-    global_step = training_util.get_or_create_global_step()
+    else:
+      pass
     
     # No DistributionStrategy case.
     grads_and_vars = tuple(grads_and_vars)  # Make sure repeat iteration works.
