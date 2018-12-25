@@ -23,6 +23,7 @@ import copy
 import re
 import sys
 import threading
+import os
 
 import numpy as np
 import six
@@ -5834,7 +5835,6 @@ class GraphKeys(object):
     return cls.GLOBAL_VARIABLES
 
 
-<<<<<<< HEAD
 @tf_export("set_k_pacemaker")
 def set_k_pacemaker(k):
   get_default_graph().set_k_pacemaker(k)
@@ -5842,7 +5842,7 @@ def set_k_pacemaker(k):
 @tf_export("k_pacemaker")
 def k_pacemaker():
   return get_default_graph().k_pacemaker
-=======
+
 def dismantle_graph(graph):
   """Cleans up reference cycles from a `Graph`.
 
@@ -5862,7 +5862,6 @@ def dismantle_graph(graph):
     op.__dict__ = {}
   graph.__dict__ = {}
 
->>>>>>> v1.12.0
 
 @tf_export("add_to_collection")
 def add_to_collection(name, value):

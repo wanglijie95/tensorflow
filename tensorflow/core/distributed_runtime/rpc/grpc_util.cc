@@ -42,21 +42,6 @@ bool GrpcMaybeParseProto(::grpc::ByteBuffer* src, protobuf::Message* dst) {
 // Overload of GrpcParseProto so we can decode a TensorResponse without
 // extra copying.  This overload is used by the RPCState class in
 // grpc_state.h.
-bool GrpcMaybeParseProto(const ::grpc::ByteBuffer& src, TensorResponse* dst) {
-  struct ByteSource : public Source {
-    const ::grpc::ByteBuffer* buffer;
-    GrpcByteBufferSource src;
-    bool ok;
-
-    ::tensorflow::protobuf::io::ZeroCopyInputStream* contents() override {
-      ok = src.Init(*buffer);
-      return &src;
-    }
-  };
-  ByteSource bs;
-  bs.buffer = &src;
-  return dst->ParseFrom(&bs).ok() && bs.ok;
-}
 
 bool GrpcMaybeParseProto(::grpc::ByteBuffer* src, TensorResponse* dst) {
   ::tensorflow::GrpcByteSource byte_source(src);

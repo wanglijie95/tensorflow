@@ -35,12 +35,8 @@ from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import state_ops
 from tensorflow.python.ops import data_flow_ops
 from tensorflow.python.platform import tf_logging as logging
-<<<<<<< HEAD
-from tensorflow.python.training import checkpointable
 from tensorflow.python.training import server_lib
-=======
 from tensorflow.python.training.checkpointable import base as checkpointable
->>>>>>> v1.12.0
 from tensorflow.python.util import compat
 from tensorflow.python.util import tf_should_use
 from tensorflow.python.util.deprecation import deprecated

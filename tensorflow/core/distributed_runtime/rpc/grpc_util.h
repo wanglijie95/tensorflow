@@ -31,7 +31,7 @@ namespace tensorflow {
 
 // Thin wrapper around ::grpc::ProtoBufferReader to give TensorResponse an
 // efficient byte reader from which to decode a RecvTensorResponse.
-class GrpcByteSource : public TensorResponse::Source {
+class GrpcByteSource : public Source {
  public:
   explicit GrpcByteSource(::grpc::ByteBuffer* buffer) : buffer_(buffer) {}
   ~GrpcByteSource() override { DeleteStream(); }

@@ -38,12 +38,9 @@ from tensorflow.python.ops import variables
 from tensorflow.python.training import distribute as distribute_lib
 from tensorflow.python.training import distribution_strategy_context
 from tensorflow.python.training import slot_creator
-<<<<<<< HEAD
 from tensorflow.python.training import server_lib
 from tensorflow.python.training import training_util
-=======
 from tensorflow.python.training.checkpointable import base as checkpointable
->>>>>>> v1.12.0
 from tensorflow.python.util import nest
 from tensorflow.python.util.tf_export import tf_export
 

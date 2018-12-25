@@ -48,12 +48,9 @@ from tensorflow.python.training import queue_runner
 from tensorflow.python.training import saver as training_saver
 from tensorflow.python.training import session_manager as sm
 from tensorflow.python.training import session_run_hook
-<<<<<<< HEAD
 from tensorflow.python.training import server_lib
 from tensorflow.python.training import training_util
-=======
 from tensorflow.python.util import function_utils
->>>>>>> v1.12.0
 from tensorflow.python.util.tf_export import tf_export
 
 
@@ -1296,7 +1293,6 @@ class _RecoverableSession(_WrappedSession):
         logging.info('An error was raised. This may be due to a preemption in '
                      'a connected worker or parameter server. The current '
                      'session will be closed and a new session will be '
-<<<<<<< HEAD
                      'created. Error: %s', e)
         sess.close()
         count = 0
@@ -1311,15 +1307,6 @@ class _RecoverableSession(_WrappedSession):
       except Exception as e:
         # raise Exception("An undesirable error was raised. Error: %s"%e)
         logging.info("An undesirable error was raised. Error: %s", e)
-=======
-                     'created. This error may also occur due to a gRPC failure '
-                     'caused by high memory or network bandwidth usage in the '
-                     'parameter servers. If this error occurs repeatedly, try '
-                     'increasing the number of parameter servers assigned to '
-                     'the job. Error: %s', e)
-        self.close()
-        self._sess = None
->>>>>>> v1.12.0
 
   def run_step_fn(self, step_fn, raw_session, run_with_hooks):
     while True:

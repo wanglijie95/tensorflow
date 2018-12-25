@@ -255,7 +255,6 @@ cc_library(
         "//tensorflow/core/distributed_runtime:worker_env",
         "//tensorflow/core/distributed_runtime:worker_interface",
         "//tensorflow/core/distributed_runtime/rpc:grpc_tensor_coding",
-        "@grpc//:grpc++_unsecure",
     ],
 )
 

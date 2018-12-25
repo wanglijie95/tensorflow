@@ -475,7 +475,7 @@ void RpcRemoteRendezvous::SendToRemoteAsync(const Rendezvous::ParsedKey& parsed,
 
   Device* src_device;
   if (s.ok()) {
-    s = sess->device_mgr->LookupDevice(parsed.src_device, &src_device);
+    s = sess->device_mgr()->LookupDevice(parsed.src_device, &src_device);
   }
   if (!s.ok()) {
     if (rwi != nullptr) {

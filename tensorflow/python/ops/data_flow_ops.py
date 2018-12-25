@@ -35,11 +35,8 @@ from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import control_flow_ops
 from tensorflow.python.ops import gen_data_flow_ops
 from tensorflow.python.ops import math_ops
-<<<<<<< HEAD
 from tensorflow.python.ops import variables
-=======
 from tensorflow.python.ops import resource_variable_ops
->>>>>>> v1.12.0
 # go/tf-wildcard-import
 # pylint: disable=wildcard-import
 from tensorflow.python.ops.gen_data_flow_ops import *

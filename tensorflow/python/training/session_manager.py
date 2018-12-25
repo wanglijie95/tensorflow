@@ -24,13 +24,9 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import errors
 from tensorflow.python.framework import ops
 from tensorflow.python.platform import tf_logging as logging
-<<<<<<< HEAD
-from tensorflow.python.training import saver as saver_mod
 from tensorflow.python.training import server_lib
-=======
 from tensorflow.python.training import checkpoint_management
 from tensorflow.python.training import distribution_strategy_context
->>>>>>> v1.12.0
 from tensorflow.python.util.tf_export import tf_export
 
 
@@ -226,13 +222,8 @@ class SessionManager(object):
       if wait_for_checkpoint and wait_time < max_wait_secs:
         logging.info("Waiting for checkpoint to be available.")
         time.sleep(self._recovery_wait_secs)
-<<<<<<< HEAD
-        wait_time += self._recovery_wait_secs 
-        ckpt = saver_mod.get_checkpoint_state(checkpoint_dir)
-=======
         wait_time += self._recovery_wait_secs
         ckpt = checkpoint_management.get_checkpoint_state(checkpoint_dir)
->>>>>>> v1.12.0
       else:
         return sess, False
 
