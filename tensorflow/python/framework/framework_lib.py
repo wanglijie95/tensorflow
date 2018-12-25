@@ -14,6 +14,7 @@
 # ==============================================================================
 
 # pylint: disable=unused-import,g-bad-import-order
+<<<<<<< HEAD
 """Classes and functions for building TensorFlow graphs.
 
 ## Core graph data structures
@@ -69,6 +70,9 @@
 
 @@register_tensor_conversion_function
 """
+=======
+"""Classes and functions for building TensorFlow graphs."""
+>>>>>>> v1.12.0
 
 from __future__ import absolute_import
 from __future__ import division

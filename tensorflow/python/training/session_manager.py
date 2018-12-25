@@ -24,8 +24,13 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import errors
 from tensorflow.python.framework import ops
 from tensorflow.python.platform import tf_logging as logging
+<<<<<<< HEAD
 from tensorflow.python.training import saver as saver_mod
 from tensorflow.python.training import server_lib
+=======
+from tensorflow.python.training import checkpoint_management
+from tensorflow.python.training import distribution_strategy_context
+>>>>>>> v1.12.0
 from tensorflow.python.util.tf_export import tf_export
 
 
@@ -96,7 +101,8 @@ class SessionManager(object):
                ready_op=None,
                ready_for_local_init_op=None,
                graph=None,
-               recovery_wait_secs=30):
+               recovery_wait_secs=30,
+               local_init_run_options=None):
     """Creates a SessionManager.
 
     The `local_init_op` is an `Operation` that is run always after a new session
@@ -128,6 +134,8 @@ class SessionManager(object):
          to run local_init_op.
       graph: The `Graph` that the model will use.
       recovery_wait_secs: Seconds between checks for the model to be ready.
+      local_init_run_options: RunOptions to be passed to session.run when
+        executing the local_init_op.
 
     Raises:
       ValueError: If ready_for_local_init_op is not None but local_init_op is
@@ -142,6 +150,7 @@ class SessionManager(object):
     self._graph = graph
     self._recovery_wait_secs = recovery_wait_secs
     self._target = None
+    self._local_init_run_options = local_init_run_options
     if ready_for_local_init_op is not None and local_init_op is None:
       raise ValueError("If you pass a ready_for_local_init_op "
                        "you must also pass a local_init_op "
@@ -182,6 +191,12 @@ class SessionManager(object):
     start = time.time()
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
+    # TODO(jhseu): Delete once tpu.initialize_system() goes away.
+    initialize_ops = (
+        distribution_strategy_context.get_distribution_strategy().initialize()
+    )
+    if initialize_ops:
+      sess.run(initialize_ops)
 
     # if ps_state_op is not None:
     #   ps_state = sess.run(ps_state_op)
@@ -206,13 +221,18 @@ class SessionManager(object):
 
     # Waits up until max_wait_secs for checkpoint to become available.
     wait_time = 0
-    ckpt = saver_mod.get_checkpoint_state(checkpoint_dir)
+    ckpt = checkpoint_management.get_checkpoint_state(checkpoint_dir)
     while not ckpt or not ckpt.model_checkpoint_path:
       if wait_for_checkpoint and wait_time < max_wait_secs:
         logging.info("Waiting for checkpoint to be available.")
         time.sleep(self._recovery_wait_secs)
+<<<<<<< HEAD
         wait_time += self._recovery_wait_secs 
         ckpt = saver_mod.get_checkpoint_state(checkpoint_dir)
+=======
+        wait_time += self._recovery_wait_secs
+        ckpt = checkpoint_management.get_checkpoint_state(checkpoint_dir)
+>>>>>>> v1.12.0
       else:
         return sess, False
 
@@ -360,8 +380,6 @@ class SessionManager(object):
 
     Raises:
       RuntimeError: If the model cannot be initialized or recovered.
-
-    Raises:
       ValueError: If both checkpoint_dir and checkpoint_filename_with_path are
         set.
     """
@@ -585,7 +603,7 @@ class SessionManager(object):
       is_ready_for_local_init, msg = self._model_ready_for_local_init(sess)
       if is_ready_for_local_init:
         logging.info("Running local_init_op.")
-        sess.run(self._local_init_op)
+        sess.run(self._local_init_op, options=self._local_init_run_options)
         logging.info("Done running local_init_op.")
         return True, None
       else:

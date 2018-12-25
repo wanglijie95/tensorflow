@@ -17,76 +17,19 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
-import collections
 import contextlib
-import copy
 
-from tensorflow.core.framework import attr_value_pb2
 from tensorflow.core.framework import graph_pb2
-from tensorflow.core.framework import types_pb2
 from tensorflow.python import pywrap_tensorflow as c_api
 from tensorflow.python.framework import c_api_util
 from tensorflow.python.framework import device as pydev
-from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
 from tensorflow.python.framework import function
 from tensorflow.python.framework import op_def_registry
 from tensorflow.python.framework import ops
-from tensorflow.python.framework import tensor_shape
 from tensorflow.python.util import compat
 from tensorflow.python.util.deprecation import deprecated_args
 from tensorflow.python.util.tf_export import tf_export
-
-
-# TODO(josh11b): SWIG the code from node_def_util instead of duplicating
-# the logic here.
-def _GetNodeAttr(node_def, attr_name):
-  if attr_name not in node_def.attr:
-    raise ValueError('Expected one attr with name %r in %s.' % (attr_name,
-                                                                str(node_def)))
-  return node_def.attr[attr_name]
-
-
-def _ArgToTypesNoRef(node_def, arg_def):
-  if arg_def.number_attr:
-    repeats = _GetNodeAttr(node_def, arg_def.number_attr).i
-    if arg_def.type_attr:
-      dtype = _GetNodeAttr(node_def, arg_def.type_attr).type
-    else:
-      assert arg_def.type != types_pb2.DT_INVALID
-      dtype = arg_def.type
-    return [dtype] * repeats
-  elif arg_def.type_attr:
-    return [_GetNodeAttr(node_def, arg_def.type_attr).type]
-  elif arg_def.type_list_attr:
-    return _GetNodeAttr(node_def, arg_def.type_list_attr).list.type
-  else:
-    assert arg_def.type != types_pb2.DT_INVALID
-    return [arg_def.type]
-
-
-def _SingleArgToTypes(node_def, arg_def):
-  types = _ArgToTypesNoRef(node_def, arg_def)
-  if arg_def.is_ref:
-    return [dtypes.as_dtype(dt)._as_ref.as_datatype_enum for dt in types]  # pylint: disable=protected-access
-  return types
-
-
-def _ArgsToTypes(node_def, arg_list):
-  types = []
-  for arg_def in arg_list:
-    types.extend(_SingleArgToTypes(node_def, arg_def))
-  return types
-
-
-def _InputTypes(node_def, op_dict):
-  op_def = op_dict[node_def.op]
-  return _ArgsToTypes(node_def, op_def.input_arg)
-
-
-def _OutputTypes(node_def, op_dict):
-  op_def = op_dict[node_def.op]
-  return _ArgsToTypes(node_def, op_def.output_arg)
 
 
 def _IsControlInput(input_name):
@@ -126,18 +69,6 @@ def _ParseTensorName(tensor_name):
     return components[0], 0
   else:
     raise ValueError('Cannot convert %r to a tensor name.' % (tensor_name,))
-
-
-def _CanonicalInputName(input_name):
-  input_name = compat.as_str(input_name)
-  if _IsControlInput(input_name):
-    return input_name
-  input_op_name, output_index = _ParseTensorName(input_name)
-  return '%s:%d' % (input_op_name, output_index)
-
-
-def _InvalidNodeMessage(node, message):
-  return 'graph_def is invalid at node %r: %s.' % (node.name, message)
 
 
 @contextlib.contextmanager
@@ -274,7 +205,7 @@ def _PopulateTFImportGraphDefOptions(options, prefix, input_map,
   for input_src, input_dst in input_map.items():
     input_src = compat.as_str(input_src)
     if input_src.startswith('^'):
-      src_name = compat.as_bytes(input_src[1:])
+      src_name = compat.as_str(input_src[1:])
       dst_op = input_dst._as_tf_output().oper  # pylint: disable=protected-access
       c_api.TF_ImportGraphDefOptionsRemapControlDependency(
           options, src_name, dst_op)
@@ -398,7 +329,7 @@ def _SetDefaultAttrValues(node_def, op_def):
         node_def.attr[key].CopyFrom(attr_def.default_value)
 
 
-@tf_export('import_graph_def')
+@tf_export('graph_util.import_graph_def', 'import_graph_def')
 @deprecated_args(None, 'Please file an issue at '
                  'https://github.com/tensorflow/tensorflow/issues if you depend'
                  ' on this feature.', 'op_dict')
@@ -413,9 +344,9 @@ def import_graph_def(graph_def,
   This function provides a way to import a serialized TensorFlow
   [`GraphDef`](https://www.tensorflow.org/code/tensorflow/core/framework/graph.proto)
   protocol buffer, and extract individual objects in the `GraphDef` as
-  @{tf.Tensor} and @{tf.Operation} objects. Once extracted,
+  `tf.Tensor` and `tf.Operation` objects. Once extracted,
   these objects are placed into the current default `Graph`. See
-  @{tf.Graph.as_graph_def} for a way to create a `GraphDef`
+  `tf.Graph.as_graph_def` for a way to create a `GraphDef`
   proto.
 
   Args:
@@ -460,98 +391,55 @@ def import_graph_def(graph_def,
     _RemoveDefaultAttrs(op_dict, producer_op_list, graph_def)
 
   graph = ops.get_default_graph()
-
-  if graph._c_graph:  # pylint: disable=protected-access
-    with ops.name_scope(name, 'import', input_map.values()) as scope:
-      # Save unique prefix generated by name_scope
-      if scope:
-        assert scope.endswith('/')
-        prefix = scope[:-1]
-      else:
-        prefix = ''
-
-      # Generate any input map tensors inside name scope
-      input_map = _ConvertInputMapValues(name, input_map)
-
-    scoped_options = c_api_util.ScopedTFImportGraphDefOptions()
-    options = scoped_options.options
-    _PopulateTFImportGraphDefOptions(options, prefix, input_map,
-                                     return_elements)
-
-    # _ProcessNewOps mutates the new operations. _lock ensures a Session.run
-    # call cannot occur between creating the TF_Operations in the
-    # TF_GraphImportGraphDefWithResults call and mutating the them in
-    # _ProcessNewOps.
-    with graph._lock:  # pylint: disable=protected-access
-      with c_api_util.tf_buffer(graph_def.SerializeToString()) as serialized:
-        try:
-          results = c_api.TF_GraphImportGraphDefWithResults(
-              graph._c_graph, serialized, options)  # pylint: disable=protected-access
-          results = c_api_util.ScopedTFImportGraphDefResults(results)
-        except errors.InvalidArgumentError as e:
-          # Convert to ValueError for backwards compatibility.
-          raise ValueError(str(e))
-
-      # Create _DefinedFunctions for any imported functions.
-      #
-      # We do this by creating _DefinedFunctions directly from `graph_def`, and
-      # adding them to `graph`. Adding an existing function to a TF_Graph is a
-      # no-op, so this only has the effect of updating the Python state (usually
-      # _DefinedFunction.add_to_graph also adds the function to the TF_Graph).
-      #
-      # TODO(skyewm): fetch the TF_Functions directly from the TF_Graph
-      # TODO(skyewm): avoid sending serialized FunctionDefs back to the TF_Graph
-      # TODO(b/74620627): move this after _ProcessNewOps outside the lock once
-      # _USE_C_SHAPES is removed.
-      if graph_def.library and graph_def.library.function:
-        # pylint: disable=protected-access
-        functions = function._from_library(graph_def.library)
-        for f in functions:
-          f.add_to_graph(graph)
-        # pylint: enable=protected-access
-
-      _ProcessNewOps(graph)
-
-    # Treat input mappings that don't appear in the graph as an error, because
-    # they are likely to be due to a typo.
-    missing_unused_input_keys = (
-        c_api.TF_ImportGraphDefResultsMissingUnusedInputMappings_wrapper(
-            results.results))
-    if missing_unused_input_keys:
-      missing_unused_input_keys = [
-          compat.as_str(s) for s in missing_unused_input_keys
-      ]
-      raise ValueError(
-          'Attempted to map inputs that were not found in graph_def: [%s]' %
-          ', '.join(missing_unused_input_keys))
-
-    if return_elements is None:
-      return None
+  with ops.name_scope(name, 'import', input_map.values()) as scope:
+    # Save unique prefix generated by name_scope
+    if scope:
+      assert scope.endswith('/')
+      prefix = scope[:-1]
     else:
-      return _GatherReturnElements(return_elements, graph, results.results)
+      prefix = ''
 
-  else:
-    g = graph
+    # Generate any input map tensors inside name scope
+    input_map = _ConvertInputMapValues(name, input_map)
 
-    # Use a canonical representation for all tensor names.
-    input_map = {_CanonicalInputName(k): v for k, v in input_map.items()}
-    used_input_keys = set()
-    name_to_op = {}
+  scoped_options = c_api_util.ScopedTFImportGraphDefOptions()
+  options = scoped_options.options
+  _PopulateTFImportGraphDefOptions(options, prefix, input_map,
+                                   return_elements)
 
-    # Add any functions defined in `graph_def` to `g`
+  # _ProcessNewOps mutates the new operations. _mutation_lock ensures a
+  # Session.run call cannot occur between creating the TF_Operations in the
+  # TF_GraphImportGraphDefWithResults call and mutating the them in
+  # _ProcessNewOps.
+  with graph._mutation_lock():  # pylint: disable=protected-access
+    with c_api_util.tf_buffer(graph_def.SerializeToString()) as serialized:
+      try:
+        results = c_api.TF_GraphImportGraphDefWithResults(
+            graph._c_graph, serialized, options)  # pylint: disable=protected-access
+        results = c_api_util.ScopedTFImportGraphDefResults(results)
+      except errors.InvalidArgumentError as e:
+        # Convert to ValueError for backwards compatibility.
+        raise ValueError(str(e))
+
+    # Create _DefinedFunctions for any imported functions.
+    #
+    # We do this by creating _DefinedFunctions directly from `graph_def`, and
+    # adding them to `graph`. Adding an existing function to a TF_Graph is a
+    # no-op, so this only has the effect of updating the Python state (usually
+    # _DefinedFunction.add_to_graph also adds the function to the TF_Graph).
+    #
+    # TODO(skyewm): fetch the TF_Functions directly from the TF_Graph
+    # TODO(skyewm): avoid sending serialized FunctionDefs back to the TF_Graph
+    # TODO(b/74620627): move this after _ProcessNewOps outside the lock once
+    # _USE_C_SHAPES is removed.
     if graph_def.library and graph_def.library.function:
-      # Copy op_dict so we don't clobber the original
-      op_dict = copy.copy(op_dict)
       # pylint: disable=protected-access
-      # Note that we do not prepend `name` to the function name. The reasoning
-      # is that function names are similar to op definition names, which
-      # currently do not have a scoped name or namespace scheme.
       functions = function._from_library(graph_def.library)
       for f in functions:
-        f.add_to_graph(g)
-        op_dict[f.name] = f.definition.signature
+        f.add_to_graph(graph)
       # pylint: enable=protected-access
 
+<<<<<<< HEAD
     # LINT.IfChange
     with ops.name_scope(name, 'import', input_map.values()) as scope:
       # TODO(ashankar): Should this just copy over or should it do some
@@ -801,3 +689,24 @@ def import_graph_def(graph_def,
                   'Requested return_element %r not found in graph_def.' % name)
         return ret
     # LINT.ThenChange(//tensorflow/core/graph/graph_constructor.cc)
+=======
+    _ProcessNewOps(graph)
+
+  # Treat input mappings that don't appear in the graph as an error, because
+  # they are likely to be due to a typo.
+  missing_unused_input_keys = (
+      c_api.TF_ImportGraphDefResultsMissingUnusedInputMappings_wrapper(
+          results.results))
+  if missing_unused_input_keys:
+    missing_unused_input_keys = [
+        compat.as_str(s) for s in missing_unused_input_keys
+    ]
+    raise ValueError(
+        'Attempted to map inputs that were not found in graph_def: [%s]' %
+        ', '.join(missing_unused_input_keys))
+
+  if return_elements is None:
+    return None
+  else:
+    return _GatherReturnElements(return_elements, graph, results.results)
+>>>>>>> v1.12.0

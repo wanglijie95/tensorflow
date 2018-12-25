@@ -226,7 +226,6 @@ Rendezvous::DoneCallback make_recv_callback(OpKernelContext* ctx,
               g_shadow_manager.InsertShadow(global_step, var_name, val);
             }
           }
-          *ctx->is_output_dead() = is_dead;
         }
         done();
       },

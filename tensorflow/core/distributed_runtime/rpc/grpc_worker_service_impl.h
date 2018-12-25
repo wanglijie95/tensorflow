@@ -16,17 +16,17 @@ limitations under the License.
 #ifndef TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_GRPC_WORKER_SERVICE_IMPL_H_
 #define TENSORFLOW_CORE_DISTRIBUTED_RUNTIME_RPC_GRPC_WORKER_SERVICE_IMPL_H_
 
-#include "grpc++/impl/codegen/async_stream.h"
-#include "grpc++/impl/codegen/async_unary_call.h"
-#include "grpc++/impl/codegen/proto_utils.h"
-#include "grpc++/impl/codegen/rpc_method.h"
-#include "grpc++/impl/codegen/service_type.h"
-#include "grpc++/impl/codegen/status.h"
-#include "grpc++/impl/codegen/stub_options.h"
-#include "grpc++/impl/codegen/sync_stream.h"
-#include "grpc++/support/byte_buffer.h"
+#include "grpcpp/impl/codegen/async_stream.h"
+#include "grpcpp/impl/codegen/async_unary_call.h"
+#include "grpcpp/impl/codegen/proto_utils.h"
+#include "grpcpp/impl/codegen/rpc_method.h"
+#include "grpcpp/impl/codegen/service_type.h"
+#include "grpcpp/impl/codegen/status.h"
+#include "grpcpp/impl/codegen/stub_options.h"
+#include "grpcpp/impl/codegen/sync_stream.h"
+#include "grpcpp/support/byte_buffer.h"
 
-#include "tensorflow/core/distributed_runtime/rpc/grpc_serialization_traits.h"
+#include "tensorflow/core/distributed_runtime/rpc/grpc_util.h"
 #include "tensorflow/core/distributed_runtime/tensor_coding.h"
 #include "tensorflow/core/protobuf/worker.pb.h"
 
@@ -74,17 +74,15 @@ class ServerContext;
 // Support parsing/unparsing of tensorflow::TensorResponse.
 // Wire-format is identical to RecvTensorResponse.
 template <>
-class SerializationTraits<tensorflow::TensorResponse>
-    : public UnlimitedSizeProtoSerializationTraits<tensorflow::TensorResponse> {
+class SerializationTraits<tensorflow::TensorResponse> {
  public:
-  static Status Serialize(const tensorflow::TensorResponse& msg,
-                          grpc_byte_buffer** bp, bool* own_buffer) {
+  static Status Serialize(const tensorflow::TensorResponse& msg, ByteBuffer* bp,
+                          bool* own_buffer) {
     LOG(FATAL) << "TODO(sanjay,jeff): Implement";
     return Status();
   }
-  static Status Deserialize(grpc_byte_buffer* buffer,
-                            tensorflow::TensorResponse* msg,
-                            int max_message_size = INT_MAX) {
+  static Status Deserialize(ByteBuffer* buffer,
+                            tensorflow::TensorResponse* msg) {
     if (buffer == nullptr) {
       return Status(StatusCode::INTERNAL, "No payload");
     }
@@ -98,7 +96,7 @@ class SerializationTraits<tensorflow::TensorResponse>
                             "TensorResponse parse error", s.ToString()));
       }
     }
-    grpc_byte_buffer_destroy(buffer);
+    buffer->Clear();
     return result;
   }
 };
@@ -151,11 +149,15 @@ enum class GrpcWorkerMethod {
   kCleanupAll,
   kRecvTensor,
   kSendReplication,
+  kRecvBuf,
   kLogging,
   kTracing,
+  kCompleteGroup,
+  kCompleteInstance,
+  kGetStepSequence,
 };
 static const int kGrpcNumWorkerMethods =
-    static_cast<int>(GrpcWorkerMethod::kTracing) + 1;
+    static_cast<int>(GrpcWorkerMethod::kGetStepSequence) + 1;
 
 const char* GrpcWorkerMethodName(GrpcWorkerMethod id);
 
