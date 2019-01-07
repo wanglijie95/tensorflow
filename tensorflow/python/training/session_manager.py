@@ -505,6 +505,8 @@ class SessionManager(object):
       max_wait_secs = float("Inf")
     timer = _CountDownTimer(max_wait_secs)
 
+    wait_secs = 0.5
+    count = 0
     while True:
       sess = session.Session(self._target, graph=self._graph, config=config)
       not_ready_msg = None
@@ -521,16 +523,17 @@ class SessionManager(object):
 
       # Do we have enough time left to try again?
       remaining_ms_after_wait = (
-          timer.secs_remaining() - self._recovery_wait_secs)
+          timer.secs_remaining() - wait_secs)
       if remaining_ms_after_wait < 0:
         raise errors.DeadlineExceededError(
             None, None,
             "Session was not ready after waiting %d secs." % (max_wait_secs,))
-
-      logging.info("Waiting for model to be ready.  "
-                   "Ready_for_local_init_op:  %s, ready: %s",
-                   not_ready_local_msg, not_ready_msg)
-      time.sleep(self._recovery_wait_secs)
+      if count >= 30/wait_secs:
+        logging.info("Waiting for model to be ready.  "
+                    "Ready_for_local_init_op:  %s, ready: %s",
+                    not_ready_local_msg, not_ready_msg)
+      time.sleep(wait_secs)
+      count += 1
 
   def _safe_close(self, sess):
     """Closes a session without raising an exception.
