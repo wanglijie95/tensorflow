@@ -108,10 +108,12 @@ SendOp::SendOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
   if (s_items.size()>=4 && r_items.size()>=4){
     string send_job = s_items[1];
     string recv_job = r_items[1];
-    recv_worker_ = "/" + r_items[1] + "/" + r_items[3];
-    counter_ = g_replication_counter_manager.GetOrCreateCounter(var_name_);
     // Set Record flag
     record_flag_ = is_var_tensor_ && KPacemakerFromEnv()>=0 && send_job=="job:ps" && recv_job=="job:worker";
+    if (record_flag_){
+      recv_worker_ = "/" + r_items[1] + "/" + r_items[3];
+      counter_ = g_replication_counter_manager.GetOrCreateCounter(var_name_);
+    }
   }
 }
 

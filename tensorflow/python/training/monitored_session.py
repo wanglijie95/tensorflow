@@ -623,7 +623,7 @@ class ChiefSessionCreator(SessionCreator):
         graph=ops.get_default_graph())
     return self._session_manager
 
-  def create_session(self):
+  def create_session(self, recover=False):
     self._scaffold.finalize()
     return self._get_session_manager().prepare_session(
         self._master,
@@ -634,7 +634,8 @@ class ChiefSessionCreator(SessionCreator):
         init_op=self._scaffold.init_op,
         init_feed_dict=self._scaffold.init_feed_dict,
         init_fn=self._scaffold.init_fn,
-        ps_state_op=self._scaffold.ps_state_op)
+        ps_state_op=self._scaffold.ps_state_op,
+        recover=recover)
 
   def server_restart_session(self):
     return self._get_session_manager().server_restart_session(
@@ -678,11 +679,12 @@ class WorkerSessionCreator(SessionCreator):
         graph=ops.get_default_graph())
     return self._session_manager
 
-  def create_session(self):
+  def create_session(self, recover=False):
     self._scaffold.finalize()
     return self._get_session_manager().wait_for_session(
         self._master, config=self._config,
-        max_wait_secs=self._max_wait_secs
+        max_wait_secs=self._max_wait_secs,
+        recover=recover
     )
   
   def server_restart_session(self):
@@ -878,10 +880,10 @@ class _MonitoredSession(object):
       self.tf_sess = None
       self._stop_grace_period_secs = stop_grace_period_secs
 
-    def create_session(self):
+    def create_session(self, recover=False):
       """Creates a coordinated session."""
       # Keep the tf_sess for unit testing.
-      self.tf_sess = self._session_creator.create_session()
+      self.tf_sess = self._session_creator.create_session(recover=recover)
       # We don't want coordinator to suppress any exception.
       self.coord = coordinator.Coordinator(clean_stop_exception_types=[])
       if ops.get_collection(ops.GraphKeys.QUEUE_RUNNERS):
@@ -1230,7 +1232,7 @@ class _RecoverableSession(_WrappedSession):
               logging.info("K-Pacemaker all recover time is : %.7f"%(end-start))
             else :
               start = time.time()
-              self._sess = self._create_session()
+              self._sess = self._create_session(recover=True)
               end = time.time()
               logging.info("Checkpoint or Standard all recover time is : %.7f"%(end-start))
           elif msg == "SocketClose":
@@ -1242,10 +1244,10 @@ class _RecoverableSession(_WrappedSession):
       self._socket_thread = threading.Thread(target=RecvMsg)
       self._socket_thread.start()
 
-  def _create_session(self):
+  def _create_session(self, recover=False):
     while True:
       try:
-        return self._sess_creator.create_session()
+        return self._sess_creator.create_session(recover=recover)
       except _PREEMPTION_ERRORS as e:
         logging.info('An error was raised while a session was being created. '
                      'This may be due to a preemption of a connected worker '

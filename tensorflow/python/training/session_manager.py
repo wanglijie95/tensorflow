@@ -307,13 +307,10 @@ class SessionManager(object):
     # Check the recovery operations is done or not
     # If not done, wait for done
     while True:
-      local_init_success, msg = self._try_run_local_init_op(sess)
-      if local_init_success:
-        # Successful if local_init_op is None, or ready_for_local_init_op passes
-        is_ready, msg = _ready(recovery_done_op, sess,
-                            "Recovery Operations is not done!")
-        if is_ready:
-          return sess
+      is_ready, msg = _ready(recovery_done_op, sess,
+                          "Recovery Operations is not done!")
+      if is_ready:
+        return sess
 
   def prepare_session(self,
                       master,
@@ -326,7 +323,8 @@ class SessionManager(object):
                       config=None,
                       init_feed_dict=None,
                       init_fn=None,
-                      ps_state_op=None):
+                      ps_state_op=None,
+                      recover=False):
     """Creates a `Session`. Makes sure the model is ready to be used.
 
     Creates a `Session` on 'master'. If a `saver` object is passed in, and
@@ -393,13 +391,14 @@ class SessionManager(object):
       if init_fn:
         init_fn(sess)
 
-    local_init_success, msg = self._try_run_local_init_op(sess)
-    if not local_init_success:
-      raise RuntimeError(
-          "Init operations did not make model ready for local_init.  "
-          "Init op: %s, init fn: %s, error: %s" % (_maybe_name(init_op),
-                                                   init_fn,
-                                                   msg))
+    if not recover:
+      local_init_success, msg = self._try_run_local_init_op(sess)
+      if not local_init_success:
+        raise RuntimeError(
+            "Init operations did not make model ready for local_init.  "
+            "Init op: %s, init fn: %s, error: %s" % (_maybe_name(init_op),
+                                                    init_fn,
+                                                    msg))
 
     is_ready, msg = self._model_ready(sess)
     if not is_ready:
@@ -473,7 +472,7 @@ class SessionManager(object):
     logging.info("Restored model from %s", restoring_file)
     return sess, is_loaded_from_checkpoint
 
-  def wait_for_session(self, master, config=None, max_wait_secs=float("Inf")):
+  def wait_for_session(self, master, config=None, max_wait_secs=float("Inf"), recover=False):
     """Creates a new `Session` and waits for model to be ready.
 
     Creates a new `Session` on 'master'.  Waits for the model to be
@@ -511,8 +510,12 @@ class SessionManager(object):
       sess = session.Session(self._target, graph=self._graph, config=config)
       not_ready_msg = None
       not_ready_local_msg = None
-      local_init_success, not_ready_local_msg = self._try_run_local_init_op(
-          sess)
+      if not recover:
+        local_init_success, not_ready_local_msg = self._try_run_local_init_op(
+            sess)
+      else:
+        local_init_success = True
+
       if local_init_success:
         # Successful if local_init_op is None, or ready_for_local_init_op passes
         is_ready, not_ready_msg = self._model_ready(sess)

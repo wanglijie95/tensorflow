@@ -17,9 +17,10 @@ class GetShadowOp : public OpKernel {
     // std::cout << "var_name : " << name_ << ", g_shadow_manager size : "
     //           << g_shadow_manager.number_shadows() << std::endl;
     if(!var.name().empty()){
-      // std::cout << "GetShadowOp get tensor:" << var->name()
-      //           << ", size is "<< var->val().TotalBytes()
-      //           << ", buf:"<< var->val().buf() << std::endl;
+      // std::cout << "tensor_name: " << var.name()
+      //           << ", NumElements: "<< var.val().NumElements()
+      //           << ", step: " << var.global_step()
+      //           << std::endl;
       
       ctx->set_output(0, var.val());
       return ;
@@ -233,7 +234,7 @@ class SendReplicationV2Op : public AsyncOpKernel {
     const Tensor& tensor = ctx->input(0);
     const Tensor& global_step = ctx->input(1);
     // We increment global_step here.
-    const int64 global_step_scalar = global_step.scalar<int64>()() + 1;
+    const int64 global_step_scalar = global_step.scalar<int64>()();
 
     bool send_flag  = false;
     int worker_repl_num = 0;
@@ -269,7 +270,7 @@ class SendReplicationV2Op : public AsyncOpKernel {
         return ;
       }
       // Compute the number of recv devices
-      num_recv_devices_ = k_ - worker_repl_num;
+      num_recv_devices_ = k_ -1 - worker_repl_num;
 
       // std::cout << "tensorflow::INFO  "
       //           << "tensor_name:" << tensor_name_

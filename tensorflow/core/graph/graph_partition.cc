@@ -191,21 +191,23 @@ void SetSendRecvAttrs(const PartitionOptions& opts, const Edge* edge,
   string var_name = "NotVariable";
   string src_type = src->type_string();
 
-  if (src_type=="VariableV2" || src_type=="Variable"){
-    is_var_tensor = true;
-    var_name = src->name();
-  }else if (src_type=="Identity" || src_type=="Assign" ||
-           src_type=="AssignAdd" || src_type=="AssignSub"){
-    if (src->num_inputs()!=0){
-      //The Variable ref is the first input in these operations.
-      Node* neighbor;
-      src->input_node(0, &neighbor);
-      if (neighbor->IsVariable()){
-        is_var_tensor = true;
-        var_name = neighbor->name();
+  if (!edge->IsControlEdge()){
+    if (src_type=="VariableV2" || src_type=="Variable"){
+      is_var_tensor = true;
+      var_name = src->name();
+    }else if (src_type=="Identity" || src_type=="Assign" ||
+            src_type=="AssignAdd" || src_type=="AssignSub"){
+      if (src->num_inputs()!=0){
+        //The Variable ref is the first input in these operations.
+        Node* neighbor;
+        src->input_node(0, &neighbor);
+        if (neighbor->IsVariable()){
+          is_var_tensor = true;
+          var_name = neighbor->name();
+        }
       }
-    }
-  }else;
+    }else;
+  }
 
   builder->Attr("is_var_tensor", is_var_tensor);
   builder->Attr("var_name", var_name);
