@@ -1346,7 +1346,7 @@ class Saver(object):
            global_step=None,
            latest_filename=None,
            meta_graph_suffix="meta",
-           write_meta_graph=True,
+           write_meta_graph=False,
            write_state=True,
            strip_default_attrs=False):
     # pylint: disable=line-too-long
@@ -1436,9 +1436,12 @@ class Saver(object):
               checkpoint_file, build_save=True, build_restore=False)
           model_checkpoint_path = self.saver_def.save_tensor_name
         else:
+          start = time.time()
           model_checkpoint_path = sess.run(
               self.saver_def.save_tensor_name,
               {self.saver_def.filename_tensor_name: checkpoint_file})
+          end = time.time()
+          logging.info("sharded: %d, save checkpoint time: %.3f"%(self._sharded, end-start))
 
         model_checkpoint_path = compat.as_str(model_checkpoint_path)
         if write_state:
@@ -1542,8 +1545,11 @@ class Saver(object):
       if context.executing_eagerly():
         self._build_eager(save_path, build_save=False, build_restore=True)
       else:
+        start = time.time()
         sess.run(self.saver_def.restore_op_name,
                  {self.saver_def.filename_tensor_name: save_path})
+        end = time.time()
+        logging.info("sharded: %d, restore checkpoint time: %.3f"%(self._sharded, end-start))
     except errors.NotFoundError as err:
       # There are three common conditions that might cause this error:
       # 0. The file is missing. We ignore here, as this is checked above.
