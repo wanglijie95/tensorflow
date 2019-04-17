@@ -27,7 +27,9 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.training import server_lib
 from tensorflow.python.training import checkpoint_management
 from tensorflow.python.training import distribution_strategy_context
+from tensorflow.python.training import training_util
 from tensorflow.python.util.tf_export import tf_export
+from tensorflow.python.ops import state_ops
 
 
 def _maybe_name(obj):
@@ -187,15 +189,27 @@ class SessionManager(object):
     start = time.time()
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
-    # TODO(jhseu): Delete once tpu.initialize_system() goes away.
-    initialize_ops = (
-        distribution_strategy_context.get_distribution_strategy().initialize()
-    )
-    if initialize_ops:
-      sess.run(initialize_ops)
+    temp = time.time()
+    logging.info("Checkpoint::Create session time : %.7f"%(temp - start))
+    
+    
+    # global_step = training_util.get_global_step(graph=self._graph)
+    # is_init = sess.run(state_ops.is_variable_initialized(global_step))
+    # logging.info("Before Recover, global_step init : %d"%is_init)
 
-    # if ps_state_op is not None:
-    #   ps_state = sess.run(ps_state_op)
+
+    # TODO(jhseu): Delete once tpu.initialize_system() goes away.
+    # initialize_ops = (
+    #     distribution_strategy_context.get_distribution_strategy().initialize()
+    # )
+    # if initialize_ops:
+    #   sess.run(initialize_ops)
+
+    if ps_state_op is not None:
+      ps_state = sess.run(ps_state_op[0])
+      temp2 = time.time()
+      logging.info("Checkpoint::Get ps state time : %.7f"%(temp2 - temp))
+
     
     if checkpoint_dir and checkpoint_filename_with_path:
       raise ValueError("Can not provide both checkpoint_dir and "
@@ -253,7 +267,13 @@ class SessionManager(object):
     start = time.time()
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
-    
+    temp = time.time()
+    logging.info("K-pacemaker::Create session time : %.7f"%(temp - start))
+
+    global_step = sess.run(training_util.get_global_step(graph=self._graph))
+    logging.info("Before Recover, global_step : %d"%global_step)
+    temp2 = time.time()
+    logging.info("K-pacemaker::Get global step time : %.7f"%(temp2 - temp))
     # The state(active or dead) of all ps
     ps_state = sess.run(ps_state_op)
     # The all ps index
