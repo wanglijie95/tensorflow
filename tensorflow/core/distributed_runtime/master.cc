@@ -357,7 +357,10 @@ class DeviceFinder {
 
 void Master::CreateSession(const CreateSessionRequest* req,
                            CreateSessionResponse* resp, MyClosure done) {
+  std::cout << "Master::CreateSession============" << std::endl;
+  // process_util.h 中的SchedClosure
   SchedClosure([this, req, resp, done]() {
+    auto start_time = std::chrono::system_clock::now();
     Status status;
     WorkerCacheFactoryOptions worker_cache_factory_options;
     string grpc_protocol("grpc");
@@ -491,6 +494,9 @@ void Master::CreateSession(const CreateSessionRequest* req,
       mutex_lock l(mu_);
       CHECK(sessions_.insert({session->handle(), session}).second);
     }
+    auto end_time = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+    std::cout<<"SchedClosure::FUNction "<< elapsed_seconds.count() << std::endl;
   });
 }
 
@@ -506,6 +512,7 @@ void Master::ExtendSession(const ExtendSessionRequest* req,
     Status status = ValidateExternalGraphDefSyntax(req->graph_def());
     if (status.ok()) {
       status = session->Extend(req, resp);
+      std::cout << "helll============" << std::endl;
     }
     session->Unref();
     done(status);

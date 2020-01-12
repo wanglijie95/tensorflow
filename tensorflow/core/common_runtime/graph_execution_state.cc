@@ -119,20 +119,24 @@ GraphExecutionState::~GraphExecutionState() {
   return Status::OK();
 }
 
+// 这里貌似很费时
 Status GraphExecutionState::Extend(
     const GraphDef& extension_def,
     std::unique_ptr<GraphExecutionState>* out) const {
   GraphDef gdef;
 
+  auto time0 = std::chrono::system_clock::now();
   // 1. Copy the function library.
   TF_RETURN_IF_ERROR(flib_def_->AddLibrary(extension_def.library()));
   *gdef.mutable_library() = flib_def_->ToProto();
+  auto time1 = std::chrono::system_clock::now();
 
   // 2. Build an index of the new node names.
   std::unordered_set<string> new_names;
   for (const NodeDef& node : extension_def.node()) {
     new_names.insert(node.name());
   }
+  auto time2 = std::chrono::system_clock::now();
 
   // 3. Add the non-duplicates from the old graph to the new graph.
   //    Return an error if the same node name appears in both the
@@ -147,6 +151,7 @@ Status GraphExecutionState::Extend(
           node.name().c_str()));
     }
   }
+  auto time3 = std::chrono::system_clock::now();
 
   // 4. Merge the versions field.
   int old_node_size = gdef.node_size();
@@ -183,6 +188,7 @@ Status GraphExecutionState::Extend(
   } else {
     gdef.mutable_versions()->CopyFrom(extension_def.versions());
   }
+  auto time4 = std::chrono::system_clock::now();
 
   // 5. Validate that the final graphdef is valid.
   if (gdef.versions().producer() >= 5) {
@@ -191,6 +197,7 @@ Status GraphExecutionState::Extend(
     TF_RETURN_IF_ERROR(graph::ValidateGraphDef(gdef, *flib_def_));
   }
 
+  auto time5 = std::chrono::system_clock::now();
   // 6. Add the extension.
   GraphExecutionStateOptions combined_options;
   combined_options.device_set = device_set_;
@@ -211,6 +218,21 @@ Status GraphExecutionState::Extend(
     TF_RETURN_IF_ERROR(new_execution_state->InitBaseGraph(BuildGraphOptions()));
   }
   *out = std::move(new_execution_state);
+  auto time6 = std::chrono::system_clock::now();
+
+  std::chrono::duration<double> elapsed_seconds1 = time1 - time0;
+  std::chrono::duration<double> elapsed_seconds2 = time2 - time1;
+  std::chrono::duration<double> elapsed_seconds3 = time3 - time2;
+  std::chrono::duration<double> elapsed_seconds4 = time4 - time3;
+  std::chrono::duration<double> elapsed_seconds5 = time5 - time4;
+  std::chrono::duration<double> elapsed_seconds6 = time6 - time5;
+
+  std::cout<<"execution_state_->Extend: "<< elapsed_seconds1.count() << std::endl
+           << elapsed_seconds2.count() << std::endl
+           << elapsed_seconds3.count() << std::endl
+           << elapsed_seconds4.count() << std::endl
+           << elapsed_seconds5.count() << std::endl
+           << elapsed_seconds6.count() << std::endl;
 
   // TODO(mrry): This is likely to be used for non-throughput-sensitive
   // interactive workloads, but in future we may want to transfer other
@@ -506,7 +528,12 @@ Status GraphExecutionState::InitBaseGraph(const BuildGraphOptions& options) {
 
   std::unique_ptr<Graph> new_graph(new Graph(OpRegistry::Global()));
   GraphConstructorOptions opts;
+  auto start_time = std::chrono::system_clock::now();
   TF_RETURN_IF_ERROR(ConvertGraphDefToGraph(opts, *graph_def, new_graph.get()));
+  auto end_time = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+  std::cout<<"ConvertGraphDefToGraph: "<< elapsed_seconds.count() << std::endl;
+  
   for (const Node* n : new_graph->nodes()) {
     VLOG(2) << "Mapping " << n->name() << " to " << n->cost_id();
     node_name_to_cost_id_map_[n->name()] = n->cost_id();
@@ -515,13 +542,22 @@ Status GraphExecutionState::InitBaseGraph(const BuildGraphOptions& options) {
       session_options_->config.graph_options().place_pruned_graph()) {
     // Rewrite the graph before placement.
     rewrite_metadata_.reset(new subgraph::RewriteGraphMetadata);
+    
     TF_RETURN_IF_ERROR(
         PruneGraph(options, new_graph.get(), rewrite_metadata_.get()));
   }
 
+  auto end_time2 = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds2 = end_time2 - end_time;
+  std::cout<<"PruneGraph: "<< elapsed_seconds2.count() << std::endl;
+
   // Save stateful placements before placing.
   RestoreStatefulNodes(new_graph.get());
 
+  auto end_time3 = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds3 = end_time3 - end_time2;
+  std::cout<<"RestoreStatefulNodes: "<< elapsed_seconds3.count() << std::endl;
+  
   GraphOptimizationPassOptions optimization_options;
   optimization_options.session_options = session_options_;
   optimization_options.graph = &new_graph;
@@ -531,9 +567,17 @@ Status GraphExecutionState::InitBaseGraph(const BuildGraphOptions& options) {
   TF_RETURN_IF_ERROR(OptimizationPassRegistry::Global()->RunGrouping(
       OptimizationPassRegistry::PRE_PLACEMENT, optimization_options));
 
+  auto end_time6 = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds6 = end_time6 - end_time3;
+  std::cout<<"RunGrouping: "<< elapsed_seconds6.count() << std::endl;
+  
   Placer placer(new_graph.get(), device_set_, session_options_);
   // TODO(mrry): Consider making the Placer cancelable.
   TF_RETURN_IF_ERROR(placer.Run());
+
+  auto end_time4 = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds4 = end_time4 - end_time6;
+  std::cout<<"placer.Run: "<< elapsed_seconds4.count() << std::endl;
 
   TF_RETURN_IF_ERROR(OptimizationPassRegistry::Global()->RunGrouping(
       OptimizationPassRegistry::POST_PLACEMENT, optimization_options));

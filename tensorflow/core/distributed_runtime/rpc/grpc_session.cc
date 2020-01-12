@@ -49,12 +49,14 @@ Status GrpcSession::Create(const SessionOptions& options,
   // master registry, so that the RPC stack is exercised.
   if (!options.config.rpc_options().use_rpc_for_inprocess_master()) {
     master = LocalMaster::Lookup(options.target);
+    std::cout << "LocalMaster" << std::endl;
   }
   if (!master) {
     SharedGrpcChannelPtr master_channel;
     TF_RETURN_IF_ERROR(NewHostPortGrpcChannel(
         options.target.substr(kSchemePrefixLength), &master_channel));
     master.reset(NewGrpcMaster(master_channel));
+    std::cout << "NewGrpcMaster" << std::endl;
   }
   session->SetRemoteMaster(std::move(master));
   *out_session = std::move(session);
@@ -100,6 +102,7 @@ Status GrpcSession::Handle(string* out_handle) {
   return Status::OK();
 }
 
+// 这个在最初被调用
 Status GrpcSession::CreateImpl(CallOptions* call_options,
                                const GraphDef& graph) {
   {
@@ -114,7 +117,13 @@ Status GrpcSession::CreateImpl(CallOptions* call_options,
   req.set_target(options_.target);
   ReEncodeConsts(req.mutable_graph_def());
   CreateSessionResponse resp;
+  
+  auto start_time = std::chrono::system_clock::now();
   Status s = master_->CreateSession(call_options, &req, &resp);
+  auto end_time = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+  std::cout<<"GrpcSession::CreateImpl: "<< elapsed_seconds.count() << std::endl;
+  
   if (s.ok()) {
     mutex_lock l(mu_);
     swap(handle_, *(resp.mutable_session_handle()));
@@ -144,6 +153,8 @@ Status GrpcSession::ExtendImpl(CallOptions* call_options,
     handle_is_empty = handle_.empty();
   }
   if (handle_is_empty) {
+    // 在这里被调用
+    std::cout << "GrpcSession::ExtendImpl, handle is empty" << std::endl;
     // Session was unitialized, so simply initialize the session with 'graph'.
     return Create(graph);
   }
@@ -153,6 +164,7 @@ Status GrpcSession::ExtendImpl(CallOptions* call_options,
   *req.mutable_graph_def() = graph;
   req.set_current_graph_version(current_graph_version_);
   ExtendSessionResponse resp;
+  std::cout << "GrpcSession::ExtendImpl" << std::endl;
   Status s = master_->ExtendSession(call_options, &req, &resp);
   if (s.ok()) {
     current_graph_version_ = resp.new_graph_version();
@@ -266,8 +278,13 @@ Status GrpcSession::Run(const RunOptions& run_options,
                         const std::vector<string>& target_node_names,
                         std::vector<Tensor>* outputs,
                         RunMetadata* run_metadata) {
-  return RunHelper(run_options, inputs, output_tensor_names, target_node_names,
+  auto start_time = std::chrono::system_clock::now();
+  RunHelper(run_options, inputs, output_tensor_names, target_node_names,
                    outputs, run_metadata, /* prun_handle */ "");
+  auto end_time = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+  std::cout<<"Run time: "<< elapsed_seconds.count() <<" sec" << std::endl;
+  return Status::OK();
 }
 
 Status GrpcSession::Run(const std::vector<std::pair<string, Tensor>>& inputs,

@@ -77,6 +77,7 @@ class MasterSession : public core::RefCounted {
   // POSTCONDITION: The current version of this session's graph
   //   is "resp->new_graph_version".
   //
+  // 注意这里
   // Extend() may block the caller thread for a long time.
   Status Extend(const ExtendSessionRequest* req, ExtendSessionResponse* resp);
 

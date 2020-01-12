@@ -17,10 +17,10 @@ class GetShadowOp : public OpKernel {
     // std::cout << "var_name : " << name_ << ", g_shadow_manager size : "
     //           << g_shadow_manager.number_shadows() << std::endl;
     if(!var.name().empty()){
-      // std::cout << "tensor_name: " << var.name()
-      //           << ", NumElements: "<< var.val().NumElements()
-      //           << ", step: " << var.global_step()
-      //           << std::endl;
+      std::cout << "tensor_name: " << var.name()
+                << ", NumElements: "<< var.val().NumElements()
+                << ", step: " << var.global_step()
+                << std::endl;
       
       ctx->set_output(0, var.val());
       return ;

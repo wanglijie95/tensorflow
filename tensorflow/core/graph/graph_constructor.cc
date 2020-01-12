@@ -127,9 +127,13 @@ class GraphConstructor {
                                        TF_GRAPH_DEF_VERSION_MIN_PRODUCER,
                                        "GraphDef", "graph"));
     }
+    auto start_time = std::chrono::system_clock::now();
     GraphConstructor c(opts, node_defs, versions, library, g, refiner,
                        return_tensors, return_nodes,
                        missing_unused_input_map_keys);
+    auto end_time = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+    std::cout<<"GraphConstructor c: "<< elapsed_seconds.count() << std::endl;
     const Status s = c.TryImport();
     if (!s.ok()) c.Undo();
     return s;

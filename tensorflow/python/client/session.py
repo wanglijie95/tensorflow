@@ -23,6 +23,7 @@ import functools
 import re
 import threading
 import warnings
+import time
 
 import numpy as np
 
@@ -1314,10 +1315,14 @@ class BaseSession(SessionInterface):
 
     def _run_fn(feed_dict, fetch_list, target_list, options, run_metadata):
       # Ensure any changes to the graph are reflected in the runtime.
+      start = time.time()
       self._extend_graph()
-      return self._call_tf_sessionrun(
+      temp = time.time()
+      hello = self._call_tf_sessionrun(
           options, feed_dict, fetch_list, target_list, run_metadata)
-
+      end = time.time()
+      logging.info("BaseSession::_run_fn, extend_graph: %.7f, run: %.7f"%(temp-start, end-temp))
+      return hello
     def _prun_fn(handle, feed_dict, fetch_list):
       if target_list:
         raise RuntimeError('partial_run() requires empty target_list.')

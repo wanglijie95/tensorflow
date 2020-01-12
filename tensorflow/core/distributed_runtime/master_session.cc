@@ -1190,8 +1190,12 @@ Status MasterSession::Create(GraphDef* graph_def,
   execution_options.session_options = &session_opts_;
   {
     mutex_lock l(mu_);
+    auto start_time = std::chrono::system_clock::now();
     TF_RETURN_IF_ERROR(GraphExecutionState::MakeForBaseGraph(
         graph_def, execution_options, &execution_state_));
+    auto end_time = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+    std::cout<<"MakeForBaseGraph "<< elapsed_seconds.count() << std::endl;
   }
   should_delete_worker_sessions_ = true;
   return CreateWorkerSessions(options);
@@ -1359,6 +1363,7 @@ Status MasterSession::ListDevices(ListDevicesResponse* resp) const {
   return Status::OK();
 }
 
+// Extend() may block the caller thread for a long time.
 Status MasterSession::Extend(const ExtendSessionRequest* req,
                              ExtendSessionResponse* resp) {
   UpdateLastAccessTime();
@@ -1376,8 +1381,13 @@ Status MasterSession::Extend(const ExtendSessionRequest* req,
     }
 
     CHECK(execution_state_);
+    auto start_time = std::chrono::system_clock::now();
     TF_RETURN_IF_ERROR(
         execution_state_->Extend(req->graph_def(), &extended_execution_state));
+    auto end_time = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+    // std::cout<<"execution_state_->Extend: "<< elapsed_seconds.count() <<" sec" << std::endl;
+    LOG(INFO) << "execution_state_->Extend " << elapsed_seconds.count(); 
 
     CHECK(extended_execution_state);
     // The old execution state will be released outside the lock.

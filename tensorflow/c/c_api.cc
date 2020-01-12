@@ -708,6 +708,8 @@ bool ExtendSessionGraphHelper(TF_Session* session, TF_Status* status) {
       // Fill graph_def with nodes with ids in the range
       // [session->last_num_graph_nodes, num_nodes), that is the nodes
       // added since the last TF_SessionRun() call.
+      std::cout << "last_num_graph_nodes: " << session->last_num_graph_nodes
+                << ", num_nodes: " << num_nodes << std::endl;
       for (auto id = session->last_num_graph_nodes; id < num_nodes; ++id) {
         Node* const node = graph.FindNodeId(id);
         if (node != nullptr && node->IsOp()) {
@@ -715,9 +717,15 @@ bool ExtendSessionGraphHelper(TF_Session* session, TF_Status* status) {
           *node_def = node->def();
         }
       }
-      *graph_def.mutable_library() = graph.flib_def().ToProto();
+     *graph_def.mutable_library() = graph.flib_def().ToProto();
       session->graph->mu.unlock();
+
+      auto start_time = std::chrono::system_clock::now();
       status->status = session->session->Extend(graph_def);
+      auto end_time = std::chrono::system_clock::now();
+      std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+      std::cout<<"session->session->Extend time: "<< elapsed_seconds.count() <<" sec" << std::endl;
+
       if (!status->status.ok()) {
         // Contract is we always delete input_values[i].
         return false;
@@ -2623,9 +2631,13 @@ void TF_SessionRun(TF_Session* session, const TF_Buffer* run_options,
   }
 
   // Actually run.
+  // auto start_time = std::chrono::system_clock::now();
   TF_Run_Helper(session->session, nullptr, run_options, input_pairs,
                 output_names, output_values, target_names, run_metadata,
                 status);
+  // auto end_time = std::chrono::system_clock::now();
+  // std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+  // std::cout<<"TF_SessionRun time: "<< elapsed_seconds.count() <<" sec" << std::endl;
 }
 
 void TF_SessionPRunSetup(TF_Session* session, const TF_Output* inputs,

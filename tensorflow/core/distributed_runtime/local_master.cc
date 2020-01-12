@@ -55,12 +55,20 @@ Status LocalMaster::CreateSession(CallOptions* call_options,
                                   CreateSessionResponse* response) {
   Notification n;
   Status ret;
+  std::cout << "LocalMaster::CreateSession" << std::endl;
+  auto start_time = std::chrono::system_clock::now();
   master_impl_->CreateSession(request, response, [&n, &ret](const Status& s) {
     ret.Update(s);
     n.Notify();
   });
+  auto end_time = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds = end_time - start_time;
+  std::cout<<"master_impl_->CreateSession: "<< elapsed_seconds.count() << std::endl;
   TF_RETURN_IF_ERROR(
       WaitForNotification(call_options, default_timeout_in_ms_, &n));
+  auto end_time2 = std::chrono::system_clock::now();
+  std::chrono::duration<double> elapsed_seconds2 = end_time2 - end_time;
+  std::cout<<"WaitForNotification: "<< elapsed_seconds2.count() << std::endl;
   return ret;
 }
 
@@ -69,6 +77,7 @@ Status LocalMaster::ExtendSession(CallOptions* call_options,
                                   ExtendSessionResponse* response) {
   Notification n;
   Status ret;
+  std::cout << "helll============" << std::endl;
   master_impl_->ExtendSession(request, response, [&n, &ret](const Status& s) {
     ret.Update(s);
     n.Notify();
