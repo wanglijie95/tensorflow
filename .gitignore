@@ -41,5 +41,5 @@ local.properties
 gradleBuild
 
 
-# pacemaker
+# replication
 compile.bash

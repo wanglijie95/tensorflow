@@ -226,41 +226,6 @@ class Scaffold(object):
         first_var = ops.get_collection("ps_%d_variables"%i)[0]
         self._ps_state_op.append(state_ops.is_variable_initialized(first_var))
       
-      if ops.k_pacemaker() >= 0:
-        # Set RecoveryClock
-        global_step = training_util.get_or_create_global_step()
-        with ops.colocate_with(global_step):
-          recovery_clock = training_util.get_or_create_recovery_clock(server_lib.get_num_tasks("ps") + 
-                                                                      server_lib.get_num_tasks("worker"))
-        
-
-        # Get the var names that should be recovered.
-        recovered_vars = array_ops.placeholder(dtypes.string)
-        ops.add_to_collection("recovered_vars", recovered_vars)
-        
-        # Get worker device shadow names
-        with ops.device(server_lib.get_default_device()):
-          _, worker_shadow_names, worker_shadow_steps = data_flow_ops.get_shadow_names(recovered_vars)
-
-        # Set worker device recover operation
-        ops.add_to_collection("worker_get_recovered_vars",
-              recovery_clock.get_recovered_vars(server_lib.get_task_index(),
-                                                worker_shadow_names,
-                                                worker_shadow_steps))
-        
-        
-        if server_lib.get_task_index() < server_lib.get_num_tasks("ps"):
-          # Get ps device shadow names
-          with ops.device("/job:ps/task:%d"%server_lib.get_task_index()):
-            _, ps_shadow_names, ps_shadow_steps = data_flow_ops.get_shadow_names(recovered_vars)
-
-          # Set corresponding PS recover operation
-          ops.add_to_collection("ps_get_recovered_vars",
-                recovery_clock.get_recovered_vars(server_lib.get_task_index() + server_lib.get_num_tasks("worker"),
-                                                  ps_shadow_names,
-                                                  ps_shadow_steps))
-          
-      
       # Default ops for checking the recovery is done or not
       def default_recovery_done_op():
         return variables.report_uninitialized_variables()
@@ -1225,11 +1190,11 @@ class _RecoverableSession(_WrappedSession):
           c.close()
           if msg == "PSRecover":
             self._sess = None
-            if ops.k_pacemaker() >= 0:
+            if ops.k_replication() >= 0:
               start = time.time()
               self._sess = self._sess_creator.server_restart_session()
               end = time.time()
-              logging.info("K-Pacemaker all recover time is : %.7f"%(end-start))
+              logging.info("K-Replication all recover time is : %.7f"%(end-start))
             else :
               start = time.time()
               self._sess = self._create_session(recover=True)

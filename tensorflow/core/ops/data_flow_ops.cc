@@ -1520,4 +1520,19 @@ REGISTER_OP("GetShadowNames")
  name: name of the variable.
  )doc");
 
+  REGISTER_OP("SendReplicationV3")
+    .Input("tensor: dtype")
+    .Input("global_step: int64")
+    .Attr("tensor_name: string")
+    .Attr("k : int")
+    .Attr("worker_num: int")
+    .Attr("ps_num: int")
+    .Attr("dtype: type")
+    .SetShapeFn(tensorflow::shape_inference::NoOutputs)
+    .Doc(R"doc(
+ Get the shadow of 'name'.
+
+ name: name of the variable.
+ )doc");
+
 }  // namespace tensorflow

@@ -291,10 +291,10 @@ class SyncReplicasOptimizer(optimizer.Optimizer):
 
       # sync_op will be assigned to the same device as the global step.
       with ops.device(global_step.device), ops.name_scope(""):
-        k_pacemaker = ops.k_pacemaker()
-        if k_pacemaker > 0:
-          update_op = self._opt.apply_gradients_with_k_pacemaker(grads_and_vars=aggregated_grads_and_vars,
-                                                                 k_pacemaker=k_pacemaker,
+        k_replication = ops.k_replication()
+        if k_replication > 0:
+          update_op = self._opt.apply_gradients_with_k_replication(grads_and_vars=aggregated_grads_and_vars,
+                                                                 k_replication=k_replication,
                                                                  send_replication_steps=1,
                                                                  global_step=global_step)
         else :

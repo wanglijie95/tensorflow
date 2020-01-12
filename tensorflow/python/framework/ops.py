@@ -71,7 +71,7 @@ from tensorflow.python.util.tf_export import tf_export
 _USE_C_API = True
 _USE_C_SHAPES = True
 
-os.environ["TF_K_PACEMAKER"] = "-1"
+os.environ["TF_K_REPLICATION"] = "-1"
 
 def tensor_id(tensor):
   """Returns a unique identifier for this Tensor."""
@@ -3012,17 +3012,17 @@ class Graph(object):
     self._finalized = True
 
   @property
-  def k_pacemaker(self):
-    """Return the value of k_pacemaker envrionment variable"""
-    return int(os.environ["TF_K_PACEMAKER"])
+  def k_replication(self):
+    """Return the value of k_replication envrionment variable"""
+    return int(os.environ["TF_K_REPLICATION"])
 
-  def set_k_pacemaker(self, k):
-    """ Set k_pacemaker envrionment variable"""
+  def set_k_replication(self, k):
+    """ Set k_replication envrionment variable"""
     if k < 0:
-      raise ValueError("The value of k_pacemaker must >= 0")
-    if int(os.environ["TF_K_PACEMAKER"]) >= 0:
-      raise ValueError("You can't set k_pacemaker twice time.")
-    os.environ["TF_K_PACEMAKER"] = str(k)
+      raise ValueError("The value of k_replication must >= 0")
+    if int(os.environ["TF_K_REPLICATION"]) >= 0:
+      raise ValueError("You can't set k_replication twice time.")
+    os.environ["TF_K_REPLICATION"] = str(k)
 
   def _unsafe_unfinalize(self):
     """Opposite of `finalize`. Internal interface.
@@ -5835,13 +5835,13 @@ class GraphKeys(object):
     return cls.GLOBAL_VARIABLES
 
 
-@tf_export("set_k_pacemaker")
-def set_k_pacemaker(k):
-  get_default_graph().set_k_pacemaker(k)
+@tf_export("set_k_replication")
+def set_k_replication(k):
+  get_default_graph().set_k_replication(k)
 
-@tf_export("k_pacemaker")
-def k_pacemaker():
-  return get_default_graph().k_pacemaker
+@tf_export("k_replication")
+def k_replication():
+  return get_default_graph().k_replication
 
 def dismantle_graph(graph):
   """Cleans up reference cycles from a `Graph`.

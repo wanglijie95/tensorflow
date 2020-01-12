@@ -1351,7 +1351,7 @@ class RefVariable(VariableV1):
         # Add to collection for recover.
         ops.add_to_collection("%s_%d_variables"%(var_job, var_task), self)
     
-      if ops.k_pacemaker() >= 0:
+      if ops.k_replication() >= 0:
         # Parse current device.
         current_job = None
         current_task = None
@@ -1368,15 +1368,8 @@ class RefVariable(VariableV1):
           raise ValueError("Some thing error. Default device should has job and task.")
 
         # Set the `getshadow` operation.
-        # The worker "job:worker/task:i" responsible for itself and "job:ps/task:i"
+        # The worker "job:worker/task:i" responsible for "job:ps/task:i"
         # if "job:ps/task:i" existed.
-        with ops.colocate_with(None, ignore_existing=True):
-          with ops.device(current_device):
-            worker_shadow = data_flow_ops.get_shadow(self._variable.op.name, self.dtype, self.shape)
-        self._shadow["worker_shadow"] = worker_shadow
-        self._recover_ops["worker_recover"] = state_ops.assign(self._variable, worker_shadow)
-
-        # Set the "ps_shadow" and "ps_recover"
         if current_task < server_lib.get_num_tasks("ps"):
           with ops.colocate_with(None, ignore_existing=True):
             with ops.device("/job:ps/task:%d"%current_task):

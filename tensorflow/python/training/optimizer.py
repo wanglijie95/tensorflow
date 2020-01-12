@@ -551,12 +551,10 @@ class Optimizer(
       ValueError: If none of the variables have gradients.
       RuntimeError: If you should use `_distributed_apply()` instead.
     """
-    if ops.k_pacemaker() > 0 :
-      return self.apply_gradients_with_k_pacemaker(grads_and_vars=grads_and_vars,
+    if ops.k_replication() > 0 :
+      return self.apply_gradients_with_k_replication(grads_and_vars=grads_and_vars,
                                                     global_step=global_step,
                                                     name=name)
-    elif ops.k_pacemaker() == 0 :
-      return self.apply_gradients_with_pacemaker(grads_and_vars, global_step, name)
     else :
       pass
     # This is a default implementation of apply_gradients() that can be shared
@@ -644,100 +642,22 @@ class Optimizer(
 
       return apply_updates
 
-  def apply_gradients_with_pacemaker(self, grads_and_vars, global_step, name=None):
-    # When you want to use pacemaker, you must specify the global step(not None).
-    if global_step is None:
-      raise ValueError("Global step Error."
-          "When you want to use k-pacemaker, you must specify the global step(not None).")
-    #Check global_step == training_util.get_global_step()
-    elif global_step != training_util.get_global_step():
-      raise ValueError("Global step Error. "
-          "You should use function `tf.train.get_or_create_global_step` to create global step.")
-    else:
-      pass
-
-    # No DistributionStrategy case.
-    grads_and_vars = tuple(grads_and_vars)  # Make sure repeat iteration works.
-    if not grads_and_vars:
-      raise ValueError("No variables provided.")
-    converted_grads_and_vars = []
-    for g, v in grads_and_vars:
-      if g is not None:
-        try:
-          # Convert the grad to Tensor or IndexedSlices if necessary.
-          g = ops.convert_to_tensor_or_indexed_slices(g)
-        except TypeError:
-          raise TypeError(
-              "Gradient must be convertible to a Tensor"
-              " or IndexedSlices, or None: %s" % g)
-        if not isinstance(g, (ops.Tensor, ops.IndexedSlices)):
-          raise TypeError(
-              "Gradient must be a Tensor, IndexedSlices, or None: %s" % g)
-      p = _get_processor(v)
-      converted_grads_and_vars.append((g, v, p))
-
-    converted_grads_and_vars = tuple(converted_grads_and_vars)
-    var_list = [v for g, v, _ in converted_grads_and_vars if g is not None]
-    if not var_list:
-      raise ValueError("No gradients provided for any variable: %s." %
-                       ([str(v) for _, _, v in converted_grads_and_vars],))
-    with ops.init_scope():
-      self._create_slots(var_list)
-
-    update_ops = []
-    with ops.name_scope(name, self._name) as name:
-      self._prepare()
-      for grad, var, processor in converted_grads_and_vars:
-        if grad is None:
-          continue
-        # We colocate all ops created in _apply_dense or _apply_sparse
-        # on the same device as the variable.
-        # TODO(apassos): figure out how to get the variable name here.
-        if context.executing_eagerly() or isinstance(
-            var,
-            resource_variable_ops.ResourceVariable) and not var._in_graph_mode:  # pylint: disable=protected-access
-          scope_name = ""
-        else:
-          scope_name = var.op.name
-        with ops.name_scope("update_" + scope_name), ops.colocate_with(var):
-          update_ops.append(processor.update_op(self, grad))
-
-      apply_updates = self._finish(update_ops, "update")
-      # with ops.control_dependencies([self._finish(update_ops, "update")]):
-      #   with ops.colocate_with(global_step):
-      #     if isinstance(global_step, resource_variable_ops.ResourceVariable):
-      #       # TODO(apassos): the implicit read in assign_add is slow; consider
-      #       # making it less so.
-      #       apply_updates = resource_variable_ops.assign_add_variable_op(
-      #           global_step.handle,
-      #           ops.convert_to_tensor(1, dtype=global_step.dtype),
-      #           name=name)
-      #     else:
-      #       apply_updates = state_ops.assign_add(global_step, 1, name=name)
-
-      if not context.executing_eagerly():
-        train_op = ops.get_collection_ref(ops.GraphKeys.TRAIN_OP)
-        if apply_updates not in train_op:
-          train_op.append(apply_updates)
-
-      return apply_updates
-
-  def apply_gradients_with_k_pacemaker(self,
+  def apply_gradients_with_k_replication(self,
                                         grads_and_vars,
                                         global_step,
-                                        k_pacemaker=None,
+                                        k_replication=None,
                                         send_replication_steps=None,
                                         name=None):
     
-    if k_pacemaker is None:
-      k_pacemaker = ops.k_pacemaker()
+    if k_replication is None:
+      k_replication = ops.k_replication()
     if send_replication_steps is None:
       send_replication_steps = server_lib.get_num_tasks("worker")
     
-    # When you want to use k-pacemaker, you must specify the global step(not None).
+    # When you want to use k-replication, you must specify the global step(not None).
     if global_step is None:
       raise ValueError("Global step Error."
-          "When you want to use k-pacemaker, you must specify the global step(not None).")
+          "When you want to use k-replication, you must specify the global step(not None).")
     #Check global_step == training_util.get_global_step()
     elif global_step != training_util.get_global_step():
       raise ValueError("Global step Error. "
@@ -791,8 +711,8 @@ class Optimizer(
         with ops.name_scope("update_" + scope_name), ops.colocate_with(var):
           # We add send replication operations here.
           with ops.control_dependencies([processor.update_op(self, grad)]):
-            send_replication = data_flow_ops.send_replication_v2(var, global_step, 
-                          var.op.name, k_pacemaker, send_replication_steps,
+            send_replication = data_flow_ops.send_replication_v3(var, global_step, 
+                          var.op.name, k_replication,send_replication_steps,
                           server_lib.get_num_tasks("ps"))
             update_ops.append(send_replication)
       
@@ -801,8 +721,8 @@ class Optimizer(
       untrained_vars = ops.get_collection(ops.GraphKeys.GLOBAL_AND_UNTRAINABLE_VARIABLES)
       for var in untrained_vars:
         with ops.name_scope("untrained_" + var.op.name), ops.colocate_with(var):
-          send_replication = data_flow_ops.send_replication_v2(var, global_step, 
-                            var.op.name, k_pacemaker, send_replication_steps,
+          send_replication = data_flow_ops.send_replication_v3(var, global_step, 
+                            var.op.name, k_replication,send_replication_steps,
                             server_lib.get_num_tasks("ps"))
           untrained_ops.append(send_replication)
 

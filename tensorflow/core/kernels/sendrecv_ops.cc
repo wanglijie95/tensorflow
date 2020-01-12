@@ -46,10 +46,6 @@ int EnvStrToInt(const char* env_var_val) {
   return temp;
 }
 
-int KPacemakerFromEnv() {
-  const char* k_pacemaker = getenv("TF_K_PACEMAKER");
-  return EnvStrToInt(k_pacemaker);
-}
 
 static string GetRendezvousKeyPrefix(const string& send_device,
                                      const string& recv_device,
@@ -102,19 +98,6 @@ SendOp::SendOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
   if (!ctx->GetAttr("_hostmem_sendrecv", &hostmem_sendrecv_).ok()) {
     hostmem_sendrecv_ = false;
   }
-  
-  std::vector<string> s_items = str_util::Split(send_device, "/");
-  std::vector<string> r_items = str_util::Split(recv_device, "/");
-  if (s_items.size()>=4 && r_items.size()>=4){
-    string send_job = s_items[1];
-    string recv_job = r_items[1];
-    // Set Record flag
-    record_flag_ = is_var_tensor_ && KPacemakerFromEnv()>=0 && send_job=="job:ps" && recv_job=="job:worker";
-    if (record_flag_){
-      recv_worker_ = "/" + r_items[1] + "/" + r_items[3];
-      counter_ = g_replication_counter_manager.GetOrCreateCounter(var_name_);
-    }
-  }
 }
 
 void SendOp::Compute(OpKernelContext* ctx) {
@@ -129,13 +112,6 @@ void SendOp::Compute(OpKernelContext* ctx) {
   Rendezvous::Args args;
   args.device_context = ctx->op_device_context();
   args.alloc_attrs = ctx->input_alloc_attr(0);
-  
-  // Record the pull worker for variable.
-  if (record_flag_){
-    mutex_lock l(counter_->mu);
-    ++(counter_->pull_counter);
-    counter_->pull_worker_set.insert(recv_worker_);
-  }
 
   FrameAndIter frame_iter = GetFrameAndIter(ctx, hostmem_sendrecv_);
   if (frame_iter == FrameAndIter(0, 0)) {
@@ -193,14 +169,6 @@ RecvOp::RecvOp(OpKernelConstruction* ctx) : AsyncOpKernel(ctx) {
     hostmem_sendrecv_ = false;
   }
   
-  std::vector<string> s_items = str_util::Split(send_device, "/");
-  std::vector<string> r_items = str_util::Split(recv_device, "/");
-  if (s_items.size()>=4 && r_items.size()>=4){
-    string send_job = s_items[1];
-    string recv_job = r_items[1];
-    // Set Record flag
-    record_flag_ = is_var_tensor_ && KPacemakerFromEnv()>=0 && send_job=="job:ps" && recv_job=="job:worker";
-  }
 }
 
 namespace {
@@ -222,11 +190,6 @@ Rendezvous::DoneCallback make_recv_callback(OpKernelContext* ctx,
           // the same type.
           if (!is_dead) {
             ctx->set_output(0, val);
-            //cache the tensor on local
-            if (record_flag){
-              int64 global_step = g_shadow_manager.global_step();
-              g_shadow_manager.InsertShadow(global_step, var_name, val);
-            }
           }
         }
         done();

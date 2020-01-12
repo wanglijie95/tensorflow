@@ -205,7 +205,7 @@ class SessionManager(object):
     # if initialize_ops:
     #   sess.run(initialize_ops)
 
-    if ps_state_op is not None:
+    if ps_state_op is not None and len(ps_state_op) > 0:
       ps_state = sess.run(ps_state_op[0])
       temp2 = time.time()
       logging.info("Checkpoint::Get ps state time : %.7f"%(temp2 - temp))
@@ -268,20 +268,25 @@ class SessionManager(object):
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
     temp = time.time()
-    logging.info("K-pacemaker::Create session time : %.7f"%(temp - start))
+    logging.info("K-Replication::Create session time : %.7f"%(temp - start))
 
     global_step = sess.run(training_util.get_global_step(graph=self._graph))
     logging.info("Before Recover, global_step : %d"%global_step)
     temp2 = time.time()
-    logging.info("K-pacemaker::Get global step time : %.7f"%(temp2 - temp))
+    logging.info("K-Replication::Get global step time : %.7f"%(temp2 - temp))
     # The state(active or dead) of all ps
     ps_state = sess.run(ps_state_op)
-    # The all ps index
-    all_ps = np.arange(len(ps_state))
-    # Get all survive ps index
-    survive_ps = all_ps[ps_state].tolist()
-    # Get all recovered ps index
-    recover_ps = all_ps[~np.array(ps_state)].tolist()
+
+    recover_ps = []
+    task_index = server_lib.get_task_index()
+    # Find the PSs that should be recoverd from "PS:task_index"
+    for i in range(len(ps_state)):
+      if not ps_state[i]:
+        for j in range(1, ops.k_replication()-1):
+          if ps_state[(i+j) % server_lib.get_num_tasks("ps")]:
+            if i+j == task_index:
+              recover_ps.append(i)
+            break
 
     # Get all var should be recovered
     recovered_vars = []
@@ -289,30 +294,11 @@ class SessionManager(object):
       var_list = self._graph.get_collection("ps_%d_variables"%idx)
       recovered_vars += var_list
     
-    # Get var names should be reocvered
-    recovered_var_names = [v.op.name for v in recovered_vars]
     
+    # Get all recover ops for recovered vars.
     recover_ops = []
-    if server_lib.get_task_index() < server_lib.get_num_tasks("ps"):
-      # Get the var should be recovered by this worker and corresponding ps
-      worker_recovered_names, ps_recovered_names = sess.run([self._graph.get_collection("worker_get_recovered_vars")[0], 
-                                                            self._graph.get_collection("ps_get_recovered_vars")[0]],
-                                                            feed_dict={self._graph.get_collection("recovered_vars")[0] : recovered_var_names})
-
-
-      for var in recovered_vars:
-        if var.op.name.encode() in worker_recovered_names:
-          recover_ops.append(var.recover_ops["worker_recover"])  
-        if var.op.name.encode() in ps_recovered_names:
-          recover_ops.append(var.recover_ops["ps_recover"])
-    else:
-      # Get the var should be recovered by this worker
-      worker_recovered_names = sess.run(self._graph.get_collection("worker_get_recovered_vars")[0], 
-                                        feed_dict={self._graph.get_collection("recovered_vars")[0] : recovered_var_names})
-    
-      for var in recovered_vars:
-        if var.op.name.encode() in worker_recovered_names:
-          recover_ops.append(var.recover_ops["worker_recover"])  
+    for var in recovered_vars:
+      recover_ops.append(var.recover_ops["ps_recover"])
     
     temp = time.time()
     # Run the real recover operation
@@ -321,7 +307,7 @@ class SessionManager(object):
     end = time.time()
 
     logging.info("*********************************************************************************************************************************")
-    logging.info("Pacemaker::Recovery, start_time: %.7f , end_time: %.7f , all_recover_time : %.7f , prepare_recover_time: %.7f , exec_recover_time: %.7f"%(start,end,end-start,
+    logging.info("K-Replication::Recovery, start_time: %.7f , end_time: %.7f , all_recover_time : %.7f , prepare_recover_time: %.7f , exec_recover_time: %.7f"%(start,end,end-start,
                                                                                                                                                             temp-start,end-temp))
     logging.info("*********************************************************************************************************************************")
     # Check the recovery operations is done or not
