@@ -1229,12 +1229,10 @@ class _RecoverableSession(_WrappedSession):
               start = time.time()
               self._sess = self._sess_creator.server_restart_session()
               end = time.time()
-              logging.info("K-Pacemaker all recover time is : %.7f"%(end-start))
             else :
               start = time.time()
               self._sess = self._create_session(recover=True)
               end = time.time()
-              logging.info("Checkpoint or Standard all recover time is : %.7f"%(end-start))
           elif msg == "SocketClose":
             break
           else:

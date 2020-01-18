@@ -184,7 +184,6 @@ class SessionManager(object):
         set.
     """
     
-    start = time.time()
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
     # TODO(jhseu): Delete once tpu.initialize_system() goes away.
@@ -206,13 +205,7 @@ class SessionManager(object):
       return sess, False
 
     if checkpoint_filename_with_path:
-      temp = time.time()
       saver.restore(sess, checkpoint_filename_with_path)
-      end = time.time()
-      logging.info("*********************************************************************************************************************************")
-      logging.info("Checkpoint::Recovery, start_time: %.7f , end_time: %.7f , all_recover_time: %.7f , prepare_recover_time: %.7f , exec_recover_time: %.7f"%(start,end,end-start,
-                                                                                                                                                            temp-start, end-temp))
-      logging.info("*********************************************************************************************************************************")
       return sess, True
 
     # Waits up until max_wait_secs for checkpoint to become available.
@@ -227,16 +220,10 @@ class SessionManager(object):
       else:
         return sess, False
 
-    temp = time.time()
     # Loads the checkpoint.
     saver.restore(sess, ckpt.model_checkpoint_path)
     saver.recover_last_checkpoints(ckpt.all_model_checkpoint_paths)
 
-    end = time.time()
-    logging.info("*********************************************************************************************************************************")
-    logging.info("Checkpoint::Recovery, start_time: %.7f , end_time: %.7f , all_recover_time: %.7f , prepare_recover_time: %.7f , exec_recover_time: %.7f"%(start,end,end-start,
-                                                                                                                                                            temp-start, end-temp))
-    logging.info("*********************************************************************************************************************************")
     return sess, True
 
 
@@ -248,9 +235,7 @@ class SessionManager(object):
     First, get the lastest worker. Then, the lastest worker do the
     recovery operations, other workers wait until the recovery_ops done.
     """
-    logging.info("Call function server_restart_session.====================")
 
-    start = time.time()
     self._target = master
     sess = session.Session(self._target, graph=self._graph, config=config)
     
@@ -294,16 +279,9 @@ class SessionManager(object):
         if var.op.name.encode() in worker_recovered_names:
           recover_ops.append(var.recover_ops["worker_recover"])  
     
-    temp = time.time()
     # Run the real recover operation
     sess.run(recover_ops)
 
-    end = time.time()
-
-    logging.info("*********************************************************************************************************************************")
-    logging.info("Pacemaker::Recovery, start_time: %.7f , end_time: %.7f , all_recover_time : %.7f , prepare_recover_time: %.7f , exec_recover_time: %.7f"%(start,end,end-start,
-                                                                                                                                                            temp-start,end-temp))
-    logging.info("*********************************************************************************************************************************")
     # Check the recovery operations is done or not
     # If not done, wait for done
     while True:

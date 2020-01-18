@@ -462,9 +462,6 @@ Status GrpcWorker::GetCPUDevice(Device** cpu_dev){
 Status GrpcWorker::GrpcSendReplication(const TensorRequest* request,
                                        SendReplicationResponse* response){
 
-  // std::cout << "Recv an replication, name : " << request->metadata().tensor_name()
-  //           <<  ", global_step : " << request->metadata().global_step() << std::endl;
-
   g_shadow_manager.InsertShadow(request->metadata().global_step(),
                                 request->metadata().tensor_name(),
                                 request->tensor());

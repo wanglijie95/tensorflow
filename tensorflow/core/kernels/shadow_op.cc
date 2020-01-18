@@ -14,14 +14,7 @@ class GetShadowOp : public OpKernel {
   }
   void Compute(OpKernelContext* ctx) override {
     ShadowVar var(g_shadow_manager.GetShadow(name_));
-    // std::cout << "var_name : " << name_ << ", g_shadow_manager size : "
-    //           << g_shadow_manager.number_shadows() << std::endl;
     if(!var.name().empty()){
-      // std::cout << "tensor_name: " << var.name()
-      //           << ", NumElements: "<< var.val().NumElements()
-      //           << ", step: " << var.global_step()
-      //           << std::endl;
-      
       ctx->set_output(0, var.val());
       return ;
     }
@@ -41,17 +34,6 @@ class GetAllShadowNamesOp : public OpKernel {
     std::vector<string> all_shadow_names;
     std::vector<int64> all_shadow_steps;
     g_shadow_manager.GetAllShadowNames(&all_shadow_names, &all_shadow_steps);
-    // std::cout << "g_shadow_manager size : " << g_shadow_manager.number_shadows()
-    //           << ", all_shadow_names.size : " << all_shadow_names.size() << std::endl;
-    // for(int i = 0; i < all_shadow_names.size(); ++i){
-    //   std::cout << all_shadow_names[i] << ", ";
-    // }
-    // std::cout << std::endl;
-
-    // for(int i = 0; i < all_shadow_steps.size(); ++i){
-    //   std::cout << all_shadow_steps[i] << ", ";
-    // }
-    // std::cout << std::endl;
     
     Tensor* output = nullptr;
     OP_REQUIRES_OK(ctx,
@@ -100,12 +82,6 @@ class GetShadowNamesOp : public OpKernel {
       }
     }
 
-    // for(int i = 0; i < shadows.size(); ++i){
-    //   std::cout << "(" << shadows[i]->name() << ", "
-    //             << shadows[i]->global_step() << "), ";
-    // }
-    // std::cout << std::endl;
-    
     Tensor* output = nullptr;
     OP_REQUIRES_OK(ctx,
                   ctx->allocate_output(0, TensorShape({}), &output));
@@ -180,14 +156,11 @@ void GetRendezvousKey(const string& key_prefix,
 class SendReplicationOp : public AsyncOpKernel {
  public:
   explicit SendReplicationOp(OpKernelConstruction* context) : AsyncOpKernel(context) {
-    // OP_REQUIRES_OK(context, context->GetAttr("send_device", &send_device_));
     OP_REQUIRES_OK(context, context->GetAttr("recv_device", &recv_device_));
     OP_REQUIRES_OK(context, context->GetAttr("variable_name", &variable_name_));
 
     send_device_ = context->device()->name();
     recv_device_ = GetDeviceFullName(recv_device_);
-    // std::cout << "send_device is : " << send_device_
-    //           << "recv_device is : " << recv_device_ << std::endl;
     string key_prefix = GetRendezvousKeyPrefix(send_device_, recv_device_,
                                         11111, variable_name_);
     GetRendezvousKey(key_prefix, {0, 0}, &parsed_key_.buf_);
@@ -246,11 +219,6 @@ class SendReplicationV2Op : public AsyncOpKernel {
       if(counter->send_counter >= worker_num_){
         send_flag = true;
         worker_repl_num = counter->pull_worker_set.size();
-        // std::cout << "tensorflow::SET  ";
-        // for (string worker_str : counter->pull_worker_set){
-        //   std::cout << worker_str << ",";
-        // }
-        // std::cout << std::endl;
         counter->ResetUnlock();
       }
     }
@@ -272,15 +240,6 @@ class SendReplicationV2Op : public AsyncOpKernel {
       // Compute the number of recv devices
       num_recv_devices_ = k_ -1 - worker_repl_num;
 
-      // std::cout << "tensorflow::INFO  "
-      //           << "tensor_name:" << tensor_name_
-      //           << ", worker_num:" << worker_num_
-      //           << ", ps_num:" << ps_num_
-      //           << ", k:" << k_
-      //           << ", num_recv_devices_:" << num_recv_devices_
-      //           << ", worker_repl_num:" << worker_repl_num
-      //           << std::endl;
-
       // num_recv_devices should < ps_num_
       // Because the original PS is not included
       if (num_recv_devices_ >= ps_num_){
@@ -294,7 +253,6 @@ class SendReplicationV2Op : public AsyncOpKernel {
       if (num_recv_devices_ <= 0){
         ctx->SetStatus(status_);
         done();
-        // std::cout << "!!!!!!!!!!!!!!!!!!!!!!num recv devices is :" << num_recv_devices_ << std::endl;
         return ;
       }
       
@@ -303,12 +261,6 @@ class SendReplicationV2Op : public AsyncOpKernel {
       response_num_ = 0;
       for (int i = 1; i <= num_recv_devices_; ++i){
         string recv_device = DeviceNameUtils::FullName(job, 0, (task+i)%ps_num_, "cpu", 0);
-        
-        // std::cout << "tensorflow::SEND  "
-        //           << "tensor_name: " << tensor_name_
-        //           << ", send_device: " << send_device
-        //           << ", recv_device: " << recv_device << std::endl;
-
         string key_prefix = GetRendezvousKeyPrefix(send_device, recv_device,
                                       11111, tensor_name_);
         Rendezvous::ParsedKey parsed_key;
@@ -334,18 +286,12 @@ class SendReplicationV2Op : public AsyncOpKernel {
                 if (response_num_ >= num_recv_devices_){
                   ctx->SetStatus(status_);
                   done();
-                  // std::cout << "done!!!!!" << std::endl;
                 }
               }
             });
       }
       
     } else {
-      // do nothing, return.
-      // std::cout << "tensorflow::INCREMENT  "
-      //           << "tensor_name : " << tensor_name_ 
-      //           << ", just increment send counter: " << counter->send_counter
-      //           << std::endl;
       done();
     }
 

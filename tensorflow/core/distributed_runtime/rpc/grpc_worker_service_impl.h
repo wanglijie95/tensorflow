@@ -73,7 +73,6 @@ class SerializationTraits<tensorflow::TensorRequest> {
  public:
   static Status Serialize(const tensorflow::TensorRequest& msg,
                           ByteBuffer* bp, bool* own_buffer) {
-    std::cout << "SerializationTraits<tensorflow::TensorRequest>::Serialize" << std::endl;
     LOG(FATAL) << "TODO(sanjay,jeff): Implement";
     return Status();
   }
