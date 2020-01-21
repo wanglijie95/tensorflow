@@ -622,17 +622,18 @@ class Optimizer(
       if global_step is None:
         apply_updates = self._finish(update_ops, name)
       else:
-        with ops.control_dependencies([self._finish(update_ops, "update")]):
-          with ops.colocate_with(global_step):
-            if isinstance(global_step, resource_variable_ops.ResourceVariable):
-              # TODO(apassos): the implicit read in assign_add is slow; consider
-              # making it less so.
-              apply_updates = resource_variable_ops.assign_add_variable_op(
-                  global_step.handle,
-                  ops.convert_to_tensor(1, dtype=global_step.dtype),
-                  name=name)
-            else:
-              apply_updates = state_ops.assign_add(global_step, 1, name=name)
+        apply_updates = self._finish(update_ops, name)
+        # with ops.control_dependencies([self._finish(update_ops, "update")]):
+        #   with ops.colocate_with(global_step):
+        #     if isinstance(global_step, resource_variable_ops.ResourceVariable):
+        #       # TODO(apassos): the implicit read in assign_add is slow; consider
+        #       # making it less so.
+        #       apply_updates = resource_variable_ops.assign_add_variable_op(
+        #           global_step.handle,
+        #           ops.convert_to_tensor(1, dtype=global_step.dtype),
+        #           name=name)
+        #     else:
+        #       apply_updates = state_ops.assign_add(global_step, 1, name=name)
 
       if not context.executing_eagerly():
         if isinstance(apply_updates, ops.Tensor):
@@ -701,17 +702,18 @@ class Optimizer(
         with ops.name_scope("update_" + scope_name), ops.colocate_with(var):
           update_ops.append(processor.update_op(self, grad))
 
-      with ops.control_dependencies([self._finish(update_ops, "update")]):
-        with ops.colocate_with(global_step):
-          if isinstance(global_step, resource_variable_ops.ResourceVariable):
-            # TODO(apassos): the implicit read in assign_add is slow; consider
-            # making it less so.
-            apply_updates = resource_variable_ops.assign_add_variable_op(
-                global_step.handle,
-                ops.convert_to_tensor(1, dtype=global_step.dtype),
-                name=name)
-          else:
-            apply_updates = state_ops.assign_add(global_step, 1, name=name)
+      apply_updates = self._finish(update_ops, "update")
+      # with ops.control_dependencies([self._finish(update_ops, "update")]):
+      #   with ops.colocate_with(global_step):
+      #     if isinstance(global_step, resource_variable_ops.ResourceVariable):
+      #       # TODO(apassos): the implicit read in assign_add is slow; consider
+      #       # making it less so.
+      #       apply_updates = resource_variable_ops.assign_add_variable_op(
+      #           global_step.handle,
+      #           ops.convert_to_tensor(1, dtype=global_step.dtype),
+      #           name=name)
+      #     else:
+      #       apply_updates = state_ops.assign_add(global_step, 1, name=name)
 
       if not context.executing_eagerly():
         train_op = ops.get_collection_ref(ops.GraphKeys.TRAIN_OP)
@@ -804,18 +806,20 @@ class Optimizer(
                             server_lib.get_num_tasks("ps"))
           untrained_ops.append(send_replication)
 
-      with ops.control_dependencies([self._finish(update_ops, "update"), 
-                                     self._finish(untrained_ops, "untrained")]):
-        with ops.colocate_with(global_step):
-          if isinstance(global_step, resource_variable_ops.ResourceVariable):
-            # TODO(apassos): the implicit read in assign_add is slow; consider
-            # making it less so.
-            apply_updates = resource_variable_ops.assign_add_variable_op(
-                global_step.handle,
-                ops.convert_to_tensor(1, dtype=global_step.dtype),
-                name=name)
-          else:
-            apply_updates = state_ops.assign_add(global_step, 1, name=name)
+      apply_updates = self._finish(update_ops + untrained_ops, "update")
+      
+      # with ops.control_dependencies([self._finish(update_ops, "update"), 
+      #                                self._finish(untrained_ops, "untrained")]):
+      #   with ops.colocate_with(global_step):
+      #     if isinstance(global_step, resource_variable_ops.ResourceVariable):
+      #       # TODO(apassos): the implicit read in assign_add is slow; consider
+      #       # making it less so.
+      #       apply_updates = resource_variable_ops.assign_add_variable_op(
+      #           global_step.handle,
+      #           ops.convert_to_tensor(1, dtype=global_step.dtype),
+      #           name=name)
+      #     else:
+      #       apply_updates = state_ops.assign_add(global_step, 1, name=name)
 
       if not context.executing_eagerly():
         train_op = ops.get_collection_ref(ops.GraphKeys.TRAIN_OP)
